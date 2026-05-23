@@ -100,6 +100,11 @@ Spawn an `Agent` subagent (type `general-purpose`) with this prompt:
 > - Sized by frequency (most-frequent categories first)
 > - Stack-aware: for `<stack>`, expected categories often include `<stack-specific examples>`
 >
+> **Don't rely on keyword matching alone**. Look at the SHAPE of comments too:
+> - GitHub `​```suggestion``` ` blocks (inline code rewrites) often dominate the top category — bucket them by what kind of change the suggestion makes (rename, extract const, single-object args, etc.) not as a single "suggestion" bucket.
+> - Repeated stock phrasings ("Please ...", "Why ...?", "Can we ...?", "I wonder if ...") indicate voice patterns, not category boundaries — record them under `voice_markers.opener_patterns`, not as categories.
+> - Code-quote-only comments (no prose) — categorize by what the quoted code does, not the comment text.
+>
 > Return JSON:
 > ```json
 > {
