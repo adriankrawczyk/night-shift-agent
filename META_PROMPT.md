@@ -220,7 +220,7 @@ This is the authoritative list of every `{{ variable }}` referenced by `template
 | Variable | Source path | Notes |
 |---|---|---|
 | `projects` | `$SCAN_JSON.projects` | array — each element has `path`, `name`, `stack`, `github.{owner,name}`, `verify_methods`, `has_login_flow` |
-| `schedule.days` | derived from Q7.2 user answer parsed into `$ANSWERS_JSON.schedule.days` | array of weekday integers 1-7 (Sun=1 macOS launchd convention) — empty if `on_demand` |
+| `schedule.days` | derived from Q7.2 user answer parsed into `$ANSWERS_JSON.schedule.days` | array of weekday integers per wizard-questions.yaml: Mon=1, Tue=2, …, Sat=6, Sun=0. macOS launchd `Weekday` accepts both 0 and 7 for Sunday, so 0 is correct. Empty array if `on_demand`. |
 | `schedule.hour` | derived (see Group D) | 0-23 |
 | `schedule.minute` | derived (see Group D) | 0-59 |
 | `existing_mcps_allowed` | `$SCAN_JSON.existing_mcps` filtered through Q2.3 narrowing | list of MCP server names |
@@ -267,7 +267,7 @@ MAX_RESUME_ATTEMPTS=3                          # constant — three sub-runs wit
 | `has_login_flow` | OR over `$SCAN_JSON.projects[].has_login_flow` | bool — singular at top level |
 | `has_slack_channels` | `"slack" ∈ $SCAN_JSON.existing_mcps && $ANSWERS_JSON.output_channels contains a slack_*` | bool |
 | `project_uses_react_compiler` | scan for `babel-plugin-react-compiler` or `experimental: {reactCompiler: true}` in `next.config.*`/`babel.config.*` | bool (per-project — for prompt.md template, use the primary project at index 0) |
-| `gh_repo_full` | `"${gh_user_login}/${gh_repo.name}"` where `gh_user_login = $(gh api user --jq .login)` | empty string if `gh_repo.create == false` |
+| `gh_repo_full` | `"${gh_user_login}/${gh_repo.name}"` where `gh_user_login` is captured at Phase 0's GitHub scan step (`gh api user --jq .login`) and persisted as `$SCAN_JSON.gh_user_login`. Empty string if `gh_repo.create == false`. |
 | `email_subject_prefix` | `$ANSWERS_JSON.output_channels_detail.email.subject_prefix`, default `<primary-project-name>` | string |
 
 ### Group E — Display strings (computed for the prompt body)

@@ -68,6 +68,13 @@ gh repo view --json owner,name,defaultBranchRef,description,visibility,primaryLa
 
 Persist as `.projects[i].github = {owner, name, default_branch, primary_language, visibility, description}`.
 
+**GitHub user (once, top-level — needed for gh_repo_full template variable):**
+```bash
+gh api user --jq .login 2>/dev/null   # e.g., "adriankrawczyk"
+```
+
+Persist as `$SCAN_JSON.gh_user_login`. Skip silently if `gh auth status` is not OK.
+
 **Recent activity** (last 14d):
 ```bash
 git -C "$path" log --since='14 days ago' --pretty=format:'%H|%ad|%an|%s' --date=short
