@@ -27,9 +27,13 @@ Extended (used by current templates; render engine MUST support):
                                           Used only by prompt.md.template for LEAN_MODE threshold.
 
 {{> (lookup recipe_gather_steps this) }}  — partial inclusion via map lookup
-                                          Resolve: read recipe_gather_steps[this], read that file path
-                                          relative to $INSTALLER_DIR, render it with the current render-context,
-                                          inline result at this location.
+                                          Resolve: recipe_gather_steps[this] is an
+                                          INLINE markdown block (NOT a file path). The
+                                          wizard pre-builds the map from each recipe
+                                          YAML's gather_steps.{description,bash_pattern}
+                                          fields (see META_PROMPT.md § Variables Schema).
+                                          The partial renders that inline string with the
+                                          current context and inlines the result here.
 
 {{#if recipe_includes "bug_triager"}}  — helper: `recipe_includes` evaluates `"bug_triager" ∈ recipes`
                                           Other helpers used:
