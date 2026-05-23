@@ -8,6 +8,8 @@
 
 You have Claude Code on your machine. You point this installer at your project; it interviews you for ~20-30 minutes about what you want done, what tools you use, and how much autonomy you trust it with. Then it builds — locally, on your disk — a personalized agent that fires every night, picks up your unfinished work, generates patches, writes a morning brief, and stays out of your way.
 
+See [`examples/sample-brief.md`](examples/sample-brief.md) for what the morning deliverable looks like.
+
 It is **not** a SaaS. There is no remote server you depend on, no account to create, no usage-metered cloud. The whole agent lives in `~/night-shift-agent/` (or wherever you tell it to), wired to your local Claude Code, and runs via your operating system's scheduler.
 
 ## Why bother
@@ -19,17 +21,21 @@ These eat days of debugging in production. This installer bakes in patterns from
 ## Quick start
 
 ```bash
-git clone https://github.com/<your-handle>/night-shift-agent ~/.night-shift-installer
-cd ~/.night-shift-installer
+curl -fsSL https://raw.githubusercontent.com/adriankrawczyk/night-shift-agent/main/install.sh | bash
 ```
 
-Then open Claude Code in any directory and paste:
+That clones the installer to `~/.night-shift-installer/`, runs preflight (`git`/`jq`/`claude`), and launches the wizard in your Claude Code session. Pick a setup depth (Minimal / Balanced / Full), answer the questions, and let it generate the agent.
 
-```
-Read /Users/<you>/.night-shift-installer/META_PROMPT.md and run the wizard.
+Prefer to inspect first?
+
+```bash
+git clone https://github.com/adriankrawczyk/night-shift-agent ~/.night-shift-installer
+bash ~/.night-shift-installer/install.sh           # launches wizard
+bash ~/.night-shift-installer/install.sh --no-launch   # just clone, paste prompt manually
+bash ~/.night-shift-installer/install.sh --update      # pull latest and re-launch
 ```
 
-The wizard takes over from there. Pick a setup depth (Minimal / Balanced / Full), answer the questions it asks, watch it scan your project + connected MCPs, and let it generate the agent for you.
+The wizard takes ~20-30 min for the Full tier (~25 questions for Balanced, ~10 for Minimal). You can kill it at any time and re-run — it detects in-progress state at `/tmp/night-shift-wizard/` and offers to resume.
 
 ## What the wizard asks (10 phases)
 
@@ -59,42 +65,59 @@ By tier, total question count: **Minimal ~10**, **Balanced ~25**, **Full ~40**.
 
 ```
 night-shift-agent/                   ← installer (this repo)
-├── META_PROMPT.md                   ← the wizard — Claude Code reads this
+├── INSTALL.md                       ← short paste-into-Claude bootstrap
+├── META_PROMPT.md                   ← the wizard engine — full 10-phase flow + variables schema
 ├── wizard-questions.yaml            ← question data (edit this to change Qs)
-├── templates/                       ← scaffolds the wizard renders into your install
+├── BASH_PATTERNS.md                 ← 18 universal bash patterns (P1..P18), pulled by templates at render time
+├── MCP_PATTERNS.md                  ← universal MCP install procedure + recipes for top 10 MCPs
+├── PERSONA_BUILDER.md               ← reviewer-style.md generation algorithm (concrete steps)
+├── COORD_PATTERN.md                 ← multi-machine (local + cloud) coord protocol
+├── README.md                        ← this file
+├── templates/                       ← 24 scaffolds the wizard renders into your install
+│   ├── README.md                    ← template grammar + variables contract
 │   ├── prompt.md.template
 │   ├── run.sh.template
 │   ├── settings.json.template
 │   ├── launchd-routine.plist.template
-│   ├── subagent-coder.md.template
+│   ├── subagent-{coder,reviewer,tester,triager}.md.template
+│   ├── daily-meta.{sh,plist,prompt.md}.template
+│   ├── meta-agent.sh.template / meta-prompt.md.template
 │   └── …
-├── recipes/                         ← work-recipe definitions
-│   ├── pr-responder.yaml
-│   ├── bug-triager.yaml
-│   ├── code-health-check.yaml
-│   └── …
-├── lib/                             ← shared bash helpers
-│   ├── lock.sh
-│   ├── heartbeat.sh
-│   ├── watchdog.sh
-│   ├── network-recovery.sh
-│   └── …
-└── INSTALL.md                       ← short paste-into-Claude bootstrap (alt to META_PROMPT)
+└── recipes/                         ← work-recipe definitions (YAML, one per recipe)
+    ├── pr-responder.yaml
+    ├── bug-triager.yaml
+    ├── code-health-check.yaml
+    ├── draft-pr-finisher.yaml
+    ├── maintenance-bot.yaml
+    └── preempt-review.yaml
 
 ~/night-shift-agent/                 ← what the wizard generates for you
-├── prompt.md
-├── run.sh
-├── settings.json
-├── subagents/
-├── recipes/
-├── runs/
-├── patches/
-└── …
+├── prompt.md                        ← agent brain (your personalized version)
+├── run.sh                           ← wrapper script (with 18 bash patterns inlined)
+├── settings.json                    ← permissions + deny list
+├── subagents/                       ← coder/reviewer/tester/triager (per your tier)
+├── recipes/                         ← copies of the recipes you picked
+├── reviewer-style.md                ← (if persona enabled) generated from real PR scans
+├── meta-prompt.md                   ← (if meta-agent enabled) self-improvement loop
+├── runs/                            ← logs, jsonl events, briefs per date
+├── patches/                         ← generated patches per date
+├── checkpoints/                     ← user-repo snapshots (rollback safety)
+└── README.md                        ← user-facing operational reference
 ```
 
 ## Editing questions post-install
 
 The wizard's question list lives in `~/.night-shift-installer/wizard-questions.yaml` — structured, ID'd, tier-tagged. Want a different wording? Edit the file. Want to add a question? Add an entry. Re-run the wizard and it picks up your edits. The engine (META_PROMPT.md) is question-agnostic.
+
+## Verifying integrity
+
+After editing anything in the installer (templates, schema, BASH_PATTERNS), run:
+
+```bash
+bash validate.sh
+```
+
+It checks repo layout, question-ID consistency, bash-pattern extraction, and renders every template against three mock contexts (minimal / balanced / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, and `jq empty` on the rendered output. ~80 assertions; takes <5 seconds. Use in CI or before sharing changes.
 
 ## Credits & lineage
 
