@@ -1,0 +1,222 @@
+#!/usr/bin/env zsh
+# protect-user-state.sh — snapshot & restore your project repo around any
+# operation that mutates it (e.g., applying a patch to test).
+#
+# Subcommands:
+#   begin <op-id>         Save current state, return checkpoint ID. Mutating
+#                         operations safe to perform after.
+#   restore <op-id>       Restore the snapshot for the given op-id.
+#   snapshot [label]      Passive baseline snapshot (no mutation expected).
+#                         Used by run.sh at start of every run.
+#   rollback <snap-id>    Restore from a passive snapshot.
+#   list-snapshots        List available snapshots.
+#   prune                 Delete snapshots older than 14 days.
+#   recover-orphan        After a crash mid-mutation, restore from active marker.
+
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
+{{#each projects}}
+USER_REPO_{{ @index }}="${NIGHT_SHIFT_PROJECT_{{ @index }}:-{{ this.path }}}"
+{{/each}}
+USER_REPO="${USER_REPO_0}"
+
+CHECKPOINTS_DIR="$ROUTINE_DIR/checkpoints"
+ACTIVE_MARKER="$CHECKPOINTS_DIR/.active"
+mkdir -p "$CHECKPOINTS_DIR"
+
+filter_untracked_by_size() {
+  local list="$1" filtered="$1.filtered" excluded="$1.excluded"
+  > "$filtered"
+  > "$excluded"
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    local full="$USER_REPO/$rel"
+    [[ ! -f "$full" ]] && continue
+    local sz; sz=$(stat -f %z "$full" 2>/dev/null || echo 0)
+    if (( sz > 10485760 )); then  # 10MB ceiling
+      printf '%s\t%s bytes\n' "$rel" "$sz" >> "$excluded"
+    else
+      printf '%s\n' "$rel" >> "$filtered"
+    fi
+  done < "$list"
+}
+
+cmd_begin() {
+  local id="$1"
+  local dir="$CHECKPOINTS_DIR/begin-$id-$(date -u +%FT%H%M%S)"
+  mkdir -p "$dir"
+
+  # Capture HEAD + branch
+  git -C "$USER_REPO" rev-parse HEAD > "$dir/orig_head.txt" 2>/dev/null
+  git -C "$USER_REPO" symbolic-ref --short HEAD > "$dir/orig_ref.txt" 2>/dev/null || echo "DETACHED" > "$dir/orig_ref.txt"
+
+  # Stash (include untracked)
+  local stash_msg="night-shift-checkpoint-${id}-$(date -u +%FT%TZ)"
+  if git -C "$USER_REPO" stash push --include-untracked --quiet -m "$stash_msg" 2>>"$dir/log.txt"; then
+    echo "$stash_msg" > "$dir/stash_msg.txt"
+  else
+    echo "no-stash-needed" > "$dir/stash_msg.txt"
+  fi
+
+  # Active marker
+  cat > "$ACTIVE_MARKER" <<EOF
+{
+  "checkpoint_id": "$id",
+  "checkpoint_dir": "$dir",
+  "stash_msg": "$stash_msg",
+  "orig_head": "$(cat "$dir/orig_head.txt")",
+  "orig_ref": "$(cat "$dir/orig_ref.txt")",
+  "begun_at": "$(date -u +%FT%TZ)"
+}
+EOF
+  echo "checkpoint_id=$id"
+  echo "checkpoint_dir=$dir"
+}
+
+cmd_restore() {
+  local id="$1"
+  local dir
+  dir=$(ls -td "$CHECKPOINTS_DIR/begin-${id}-"* 2>/dev/null | head -1)
+  if [[ -z "$dir" || ! -d "$dir" ]]; then
+    echo "No checkpoint for id $id" >&2
+    return 1
+  fi
+
+  local orig_ref orig_head stash_msg
+  orig_ref=$(cat "$dir/orig_ref.txt" 2>/dev/null)
+  orig_head=$(cat "$dir/orig_head.txt" 2>/dev/null)
+  stash_msg=$(cat "$dir/stash_msg.txt" 2>/dev/null)
+
+  # Force-checkout original branch (or detach to original HEAD)
+  if [[ "$orig_ref" != "DETACHED" ]]; then
+    git -C "$USER_REPO" checkout --quiet "$orig_ref" 2>>"$dir/log.txt" || \
+      git -C "$USER_REPO" checkout --detach --quiet "$orig_head" 2>>"$dir/log.txt"
+  else
+    git -C "$USER_REPO" checkout --detach --quiet "$orig_head" 2>>"$dir/log.txt"
+  fi
+
+  # Reset to that HEAD (drop any modifications agent left)
+  git -C "$USER_REPO" reset --hard --quiet "$orig_head" 2>>"$dir/log.txt"
+
+  # Apply stash (not pop — pop loses on conflict)
+  if [[ "$stash_msg" != "no-stash-needed" ]]; then
+    local stash_ref
+    stash_ref=$(git -C "$USER_REPO" stash list | grep -F "$stash_msg" | head -1 | cut -d: -f1)
+    if [[ -n "$stash_ref" ]]; then
+      if git -C "$USER_REPO" stash apply --quiet "$stash_ref" 2>>"$dir/log.txt"; then
+        git -C "$USER_REPO" stash drop --quiet "$stash_ref" 2>>"$dir/log.txt"
+      else
+        echo "WARN: stash apply conflicted — KEPT in stash list for manual recovery"
+        return 2
+      fi
+    fi
+  fi
+
+  rm -f "$ACTIVE_MARKER"
+  echo "restored from $dir"
+}
+
+cmd_snapshot() {
+  local label="${1:-baseline}"
+  local cur_head; cur_head=$(git -C "$USER_REPO" rev-parse HEAD 2>/dev/null)
+  local cur_ref; cur_ref=$(git -C "$USER_REPO" symbolic-ref --short HEAD 2>/dev/null || echo "DETACHED")
+  local cur_status_hash; cur_status_hash=$(git -C "$USER_REPO" status --porcelain | shasum | cut -d' ' -f1)
+
+  # Dedup: if recent identical snapshot exists, reuse
+  local recent_dir
+  recent_dir=$(ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -1)
+  if [[ -n "$recent_dir" && -f "$recent_dir/orig_head.txt" ]]; then
+    local r_head r_ref r_status_hash
+    r_head=$(cat "$recent_dir/orig_head.txt")
+    r_ref=$(cat "$recent_dir/orig_ref.txt")
+    r_status_hash=$(cat "$recent_dir/status_hash.txt" 2>/dev/null)
+    local r_ts; r_ts=$(stat -f %m "$recent_dir" 2>/dev/null || echo 0)
+    local age=$(( $(date +%s) - r_ts ))
+    if [[ "$r_head" == "$cur_head" && "$r_ref" == "$cur_ref" && "$r_status_hash" == "$cur_status_hash" ]] && (( age < 1800 )); then
+      echo "snap-id=$(basename "$recent_dir")"
+      return 0
+    fi
+  fi
+
+  local dir="$CHECKPOINTS_DIR/snap-${label}-$(date -u +%FT%H%M%S)"
+  mkdir -p "$dir"
+  echo "$cur_head" > "$dir/orig_head.txt"
+  echo "$cur_ref" > "$dir/orig_ref.txt"
+  echo "$cur_status_hash" > "$dir/status_hash.txt"
+  git -C "$USER_REPO" status --porcelain > "$dir/status.txt"
+
+  # Capture diff vs HEAD + untracked file list (size-filtered)
+  git -C "$USER_REPO" diff HEAD > "$dir/diff.patch" 2>/dev/null
+  git -C "$USER_REPO" ls-files --others --exclude-standard > "$dir/untracked.txt"
+  filter_untracked_by_size "$dir/untracked.txt"
+
+  echo "snap-id=$(basename "$dir")"
+}
+
+cmd_rollback() {
+  local id="${1:-latest}"
+  local dir
+  if [[ "$id" == "latest" ]]; then
+    dir=$(ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -1)
+  else
+    dir="$CHECKPOINTS_DIR/$id"
+  fi
+  if [[ -z "$dir" || ! -d "$dir" ]]; then
+    echo "No snapshot found" >&2
+    return 1
+  fi
+  local orig_head; orig_head=$(cat "$dir/orig_head.txt")
+  local orig_ref; orig_ref=$(cat "$dir/orig_ref.txt")
+
+  if [[ "$orig_ref" != "DETACHED" ]]; then
+    git -C "$USER_REPO" checkout --quiet "$orig_ref"
+  else
+    git -C "$USER_REPO" checkout --detach --quiet "$orig_head"
+  fi
+  git -C "$USER_REPO" reset --hard --quiet "$orig_head"
+
+  # Reapply uncommitted state
+  if [[ -s "$dir/diff.patch" ]]; then
+    git -C "$USER_REPO" apply "$dir/diff.patch" 2>/dev/null || \
+      echo "WARN: diff.patch didn't re-apply cleanly"
+  fi
+
+  # Restore untracked files from filtered list (best-effort — only those still tracked in agent's snapshot won't help; the diff covers tracked changes; untracked files we logged but can't restore from a list-only snapshot)
+  # This implementation is intentionally minimal — for full restoration use cmd_begin/restore instead.
+  echo "rolled back to $dir"
+}
+
+cmd_list_snapshots() {
+  ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -20 | while read -r d; do
+    local ts; ts=$(stat -f %Sm -t '%Y-%m-%d %H:%M' "$d" 2>/dev/null)
+    echo "$(basename "$d")  $ts"
+  done
+}
+
+cmd_prune() {
+  find "$CHECKPOINTS_DIR" -maxdepth 1 -name "snap-*" -type d -mtime +14 -exec rm -rf {} \; 2>/dev/null || true
+  find "$CHECKPOINTS_DIR" -maxdepth 1 -name "begin-*" -type d -mtime +14 -exec rm -rf {} \; 2>/dev/null || true
+}
+
+cmd_recover_orphan() {
+  [[ ! -f "$ACTIVE_MARKER" ]] && { echo "no active marker"; return 0; }
+  local id; id=$(jq -r .checkpoint_id "$ACTIVE_MARKER")
+  echo "orphan checkpoint detected — restoring id=$id"
+  cmd_restore "$id"
+}
+
+case "${1:-}" in
+  begin)    shift; cmd_begin "$@" ;;
+  restore)  shift; cmd_restore "$@" ;;
+  snapshot) shift; cmd_snapshot "$@" ;;
+  rollback) shift; cmd_rollback "$@" ;;
+  list-snapshots) shift; cmd_list_snapshots "$@" ;;
+  prune)    cmd_prune ;;
+  recover-orphan) cmd_recover_orphan ;;
+  *)
+    echo "Usage: protect-user-state.sh {begin|restore|snapshot|rollback|list-snapshots|prune|recover-orphan}" >&2
+    exit 2
+    ;;
+esac

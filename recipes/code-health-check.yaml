@@ -1,0 +1,66 @@
+id: code_health_check
+name: "Code health check"
+description: "Runs lint/typecheck/test/format on the project, identifies issues, proposes patches that clean up obvious tech debt without touching behavior."
+
+triggers:
+  - has_test_config
+  - has_lint_config
+  - user_mentioned:clean
+  - user_mentioned:refactor
+  - user_mentioned:health
+  - user_mentioned:quality
+
+required_services:
+  - github
+helpful_services: []
+
+default_settings:
+  iterate_per_finding: true
+  max_findings_per_run: 15
+  cap_minutes_per_finding: 10
+  patch_class: experimental  # mostly low-priority quality patches
+
+gather_steps:
+  description: |
+    Run verify methods on the project's current main branch (latest pull):
+      - typecheck (e.g. tsc --noEmit) — collect errors
+      - lint (e.g. eslint . / ruff check) — collect warnings + errors
+      - format check (e.g. prettier --check / black --check) — list unformatted files
+      - test (e.g. npm test / pytest) — note failing tests if any
+      - cyclomatic complexity scan if a tool is available (e.g. lizard, mccabe)
+      - dead code scan if available (knip, deadcode, vulture)
+      - dependency audit (npm audit, pip-audit) — high-severity only
+
+  bash_pattern: |
+    git checkout --detach origin/main
+    # Run each verify method, capture exit code + structured output
+    npm run typecheck 2>&1 | tail -100
+    npm run lint -- --format json 2>/dev/null
+    # ...
+
+implementation_pattern:
+  description: |
+    1. Collect all findings into a structured list
+    2. Triage: P0 (broken build), P1 (failing tests), P2 (lint warnings), P3 (style)
+    3. Group findings by file
+    4. For each group with confidence "obvious fix":
+       a. coder subagent: minimal patch
+       b. verify after patch
+       c. hold
+    5. For "ambiguous" findings: surface as decisions-needed in brief, don't patch
+
+  brief_section: |
+    Sections:
+      - Build/CI status (compile-clean? tests-passing?)
+      - Critical findings (P0/P1) — addressed or flagged
+      - Quality findings (P2/P3) — counts + sample
+      - Patches delivered + their categories
+      - Decisions needed (ambiguous findings)
+
+  reviewer_persona_relevance: HIGH  # quality-of-life patches are where persona shines
+  argent_relevance: LOW
+
+failure_modes:
+  - "Refactor would touch too many files (>5)": flag for human review, don't auto-patch
+  - "Lint rule that user disabled inline": don't unilaterally enable
+  - "Dependency vulnerability requires major version bump": flag as decisions-needed (semver bump risk)

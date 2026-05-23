@@ -1,0 +1,707 @@
+# Night Shift Agent — Wizard Questions
+#
+# This file is the source of truth for what the wizard asks. The engine
+# (META_PROMPT.md) is question-agnostic — it loops over the entries here,
+# filters by tier + depends_on, and uses AskUserQuestion / plain prompts
+# to interview the user.
+#
+# To edit a question's wording, edit the `text` field below. To add a
+# new question, append a new entry (use a unique `id`). To change tier
+# filtering, edit `tier_filter`.
+#
+# Question types:
+#   single-select   — AskUserQuestion, one choice
+#   multi-select    — AskUserQuestion, multiple choices
+#   free-text       — plain prompt + read response
+#   free-text-loop  — plain prompt + re-ask "anything else?" until "no"
+#   secrets-form    — multi-field input, values encrypted at rest
+#   confirmation    — single Y/N
+#
+# `tier_filter` is a list of tiers where the question is shown. If a tier
+# is missing, the question is skipped at that tier (defaults are used).
+#
+# `depends_on` is a JSONPath-style condition into the answers + scan JSONs.
+# Examples: "q0_4 in [A, B]"  /  ".gh_repo.create == true"  /  ".tier == full"
+
+version: 1
+
+questions:
+
+  # ─────────────────────────── PHASE 0 ───────────────────────────
+  - id: q0_0
+    phase: 0
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Setup depth"
+    text: |
+      Hey — I'm Night Shift Agent. My job is to do your work while you sleep.
+
+      How deep do you want to configure me?
+    options:
+      - label: "Minimal"
+        value: minimal
+        description: "~10 questions, I'll pick sensible defaults. Fastest start."
+      - label: "Balanced (recommended)"
+        value: balanced
+        description: "~25-30 questions, we set the main things together."
+      - label: "Full"
+        value: full
+        description: "~35-45 questions, you control everything (meta-agent, dashboard, reviewer persona, custom resilience)."
+    store_as: tier
+
+  - id: q0_1
+    phase: 0
+    type: free-text-loop
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    text: |
+      Where's the project you want me to work on? (e.g., `~/code/my-app`)
+
+      If you have several — tell me about all of them.
+    validate:
+      - dir_exists
+      - is_git_repo
+    loop_prompt: "Got another project for me too? (Yes — paste the path / No — that's all)"
+    store_as: projects[].path
+
+  - id: q0_2
+    phase: 0
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Scan confirm"
+    text_template: |
+      I scanned your project(s). Here's what I found:
+
+      {{ scan_summary }}
+
+      Does this match what you'd expect?
+    options:
+      - label: "Yes — keep going"
+        value: confirm
+        description: "Everything looks right. Move to next phase."
+      - label: "Something's off — show me the full scan"
+        value: edit
+        description: "I'll dump the full scan JSON and let you edit any field."
+      - label: "Wrong project — give me a different folder"
+        value: redo
+        description: "Loop back to Q0.1."
+
+  - id: q0_3
+    phase: 0
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Install folder"
+    text: |
+      Which folder should I install my files into? (Scripts, prompts, logs — kept separate from your project.)
+    options:
+      - label: "~/night-shift-agent/ (recommended)"
+        value: default
+        description: "The standard install location."
+      - label: "Different folder — tell me where"
+        value: custom
+        description: "Free text — wizard validates the path."
+    store_as: install_dir
+
+  - id: q0_4
+    phase: 0
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "GitHub repo"
+    text: |
+      Want me to create a GitHub repo for my files? (For backup and version tracking. Secrets and logs are gitignored — the repo only holds prompts, scripts, config.)
+    options:
+      - label: "Yes, private repo (recommended)"
+        value: private
+        description: "Creates `night-shift-agent` as private. Just for you."
+      - label: "Yes, public repo"
+        value: public
+        description: "Useful if you'd share your setup with others."
+      - label: "No, local only"
+        value: none
+        description: "Files only on this machine."
+      - label: "Maybe later"
+        value: later
+        description: "Show me the command to do it myself."
+    store_as: gh_repo
+
+  # ─────────────────────────── PHASE 1 ───────────────────────────
+  - id: q1_1
+    phase: 1
+    type: free-text
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    text: |
+      What do you want me to work on while you sleep? Describe in 1-3 sentences. Don't worry about details — I'll propose specifics next.
+    store_as: q1_1_freeform
+
+  - id: q1_2
+    phase: 1
+    type: multi-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Pick jobs"
+    text_template: |
+      Based on what you said and what I see, I could take on these jobs:
+
+      {{ recipe_options_with_evidence }}
+
+      Pick what you want me to do (you can pick more than one):
+    options_source: recipes  # rendered dynamically from recipes/*.yaml that match triggers
+    store_as: recipes
+
+  # Q1.3 removed — defaults applied for all recipes. User can ask to deepen later.
+
+  # ─────────────────────────── PHASE 2 ───────────────────────────
+  - id: q2_1
+    phase: 2
+    type: multi-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Service map"
+    text_template: |
+      For what you picked, I'd like to use:
+
+      {{ service_map_already_connected }}
+
+      Could be useful (I can install):
+      {{ service_map_to_install }}
+
+      Anything I should NOT use? (Pick to skip.)
+    options_source: service_map_skip_options
+    store_as: services_skipped
+
+  - id: q2_2
+    phase: 2
+    type: single-select-loop
+    tier_filter: [balanced, full]
+    depends_on: "len(services_to_install) > 0"
+    header_template: "Install: {{ current_mcp }}"
+    text_template: |
+      Install **{{ current_mcp_name }}**? It {{ current_mcp_description }}. Needs you to {{ current_mcp_setup_action }}.
+    options:
+      - label: "Yes, install"
+        value: install
+        description: "I'll run the install commands now."
+      - label: "Skip"
+        value: skip
+        description: "Won't be available; I'll work without it."
+      - label: "I'll do it manually"
+        value: manual
+        description: "Show me the install command + URL."
+    loop_over: services_to_install
+    store_as: services_install_decisions[]
+
+  - id: q2_3
+    phase: 2
+    type: multi-select-loop
+    tier_filter: [balanced, full]
+    depends_on: null
+    header_template: "{{ current_mcp_name }}: narrow scope"
+    text_template: |
+      Looking at **{{ current_mcp_name }}**, it can read from:
+
+      {{ scoping_units_for_current_mcp }}
+
+      Which should I focus on? Pick what's relevant to your goals — others won't be touched.
+    options_source: mcp_scoping_units
+    loop_over: connected_services
+    store_as: services_scoping[]
+
+  # ─────────────────────────── PHASE 3 ───────────────────────────
+  - id: q3_1
+    phase: 3
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: null
+    header: "Reviewer style"
+    text: |
+      Want me to learn the style of someone who reviews your code? When I write patches at night, I'll preempt their feedback — making your morning review smoother.
+    options:
+      - label: "Yes"
+        value: yes
+        description: "I'll scan their PR review history."
+      - label: "No"
+        value: no
+        description: "Skip this feature."
+      - label: "Tell me more first"
+        value: explain
+        description: "I'll explain how it works, then re-ask."
+    store_as: reviewer_persona.enabled
+
+  - id: q3_2
+    phase: 3
+    type: free-text-loop
+    tier_filter: [balanced, full]
+    depends_on: "reviewer_persona.enabled == yes"
+    text: |
+      Who reviews your code most often? Give me their GitHub handle. You can list more than one person.
+    validate:
+      - gh_user_exists
+    loop_prompt: "Anyone else? (Handle / No)"
+    store_as: reviewer_persona.handles[]
+
+  - id: q3_3
+    phase: 3
+    type: single-select-loop
+    tier_filter: [balanced, full]
+    depends_on: "reviewer_persona.enabled == yes AND len(reviewers_with_no_pr_history) > 0"
+    header_template: "Source for {{ current_handle }}"
+    text_template: |
+      I couldn't find PR review comments from **{{ current_handle }}** on your code. Where else can I learn their style?
+    options:
+      - label: "Their public GitHub activity"
+        value: gh_activity
+        description: "I'll scan their own PRs/issues/comments."
+      - label: "Slack DMs with them"
+        value: slack_dms
+        description: "Needs Slack connected."
+      - label: "A document you'll paste"
+        value: paste
+        description: "Style guide, examples, notes — anything text."
+      - label: "Skip this person"
+        value: skip
+        description: "Won't include them in the persona."
+    loop_over: reviewers_with_no_pr_history
+    store_as: reviewer_persona.fallback_sources[]
+
+  - id: q3_4
+    phase: 3
+    type: single-select
+    tier_filter: [full]
+    depends_on: "reviewer_persona.enabled == yes"
+    header: "Anonymize"
+    text: |
+      Should I save their actual name in my files, or use a role label like "Senior Reviewer"?
+    options:
+      - label: "Use real name (default)"
+        value: false
+        description: "Persona file shows actual handles + names."
+      - label: "Anonymize as 'Senior Reviewer N'"
+        value: true
+        description: "Privacy mode."
+    store_as: reviewer_persona.anonymize
+
+  # ─────────────────────────── PHASE 4 ───────────────────────────
+  - id: q4_1
+    phase: 4
+    type: multi-select
+    tier_filter: [balanced, full]   # Minimal auto-defaults to ["markdown"] — no Q
+    depends_on: null
+    header: "Output channels"
+    text_template: |
+      Where should I put my morning brief?
+
+      {{ output_channels_options }}
+
+      Pick at least one. If a channel needs a service I haven't installed yet
+      (like Gmail), I'll install it inline before continuing.
+    options_source: output_channels_available
+    store_as: output_channels
+
+  - id: q4_2
+    phase: 4
+    type: form-loop
+    tier_filter: [balanced, full]
+    depends_on: "len(output_channels) > 0"
+    header_template: "Detail: {{ current_channel }}"
+    text_template: |
+      For **{{ current_channel }}** — {{ channel_detail_prompt }}
+    fields_source: channel_detail_fields
+    loop_over: output_channels
+    store_as: output_channels_detail[]
+
+  - id: q4_3
+    phase: 4
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: null
+    header: "Brief length"
+    text: |
+      How detailed do you want my morning brief?
+    options:
+      - label: "Lean"
+        value: lean
+        description: "~30-50 lines executive summary + clear next-step CTAs. For skimming."
+      - label: "Medium (default)"
+        value: medium
+        description: "Sections per topic, ~200-400 lines. Balanced."
+      - label: "Deep dive"
+        value: deep
+        description: "Full reasoning, evidence quotes, every patch explained. Long but thorough."
+    store_as: brief_length
+
+  - id: q4_3b
+    phase: 4
+    type: form
+    tier_filter: [full]
+    depends_on: "len(output_channels) > 1"
+    header: "Length per channel"
+    text: |
+      Different length per channel? (For example: lean to email, deep dive in the markdown file.)
+    fields_source: output_channels  # one field per picked channel
+    store_as: brief_length_per_channel
+
+  # ─────────────────────────── PHASE 5 ───────────────────────────
+  - id: q5_1
+    phase: 5
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Verification"
+    text_template: |
+      Verification is how I close the loop — after I write each patch, I run checks to make sure I didn't break anything. Without verification, broken patches reach your morning brief.
+
+      Here's what I detected in your project:
+
+      {{ verify_methods_detected }}
+
+      Use all of these to verify each patch?
+    options:
+      - label: "Yes, use everything"
+        value: all
+        description: "Standard."
+      - label: "Let me pick each"
+        value: pick
+        description: "Multi-select toggle next."
+      - label: "Give my own command"
+        value: custom
+        description: "I'll prompt for the verify command + success criteria."
+      - label: "Don't verify (risky)"
+        value: skip
+        description: "Faster but patches might break stuff. Not recommended."
+    store_as: verify_strategy
+
+  - id: q5_2
+    phase: 5
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: "project_touches_ui AND not has_ui_automation"
+    header: "UI automation"
+    text: |
+      Some of what I'd do touches UI behavior. To check if patches actually work, I need to drive a browser or simulator. Want me to set that up?
+    options:
+      - label: "Yes — Playwright (web)"
+        value: playwright
+        description: "Browser automation. Good for web apps."
+      - label: "Yes — Argent (mobile)"
+        value: argent
+        description: "iOS/Android simulator control. Good for mobile apps."
+      - label: "Yes — both"
+        value: both
+        description: "Web + mobile work."
+      - label: "No, skip"
+        value: none
+        description: "Verify with tests only, no visual checks."
+    store_as: ui_automation
+
+  - id: q5_3
+    phase: 5
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: "len(env_vars_needed) > 0"
+    header: "Secrets/config"
+    text_template: |
+      For your verify commands, I detected these might be needed:
+
+      {{ env_vars_with_detected_sources }}
+
+      How should I get them?
+    options:
+      - label: "Use them all where I figured out the source"
+        value: auto
+        description: "I'll use detected sources + ask only for unknowns."
+      - label: "Let me approve each"
+        value: per_secret
+        description: "Show me one by one."
+      - label: "Don't use any — I'll set up manually later"
+        value: manual
+        description: "Skip secrets setup. Verify might fail without them."
+      - label: "Not needed"
+        value: skip
+        description: "My verify works without secrets."
+    store_as: secrets_strategy
+
+  # ─────────────────────────── PHASE 6 ───────────────────────────
+  - id: q6_1
+    phase: 6
+    type: multi-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Delivery"
+    text: |
+      What can I do with patches I've written and verified?
+    options:
+      - label: "Save to disk"
+        value: disk
+        description: "Patches in `<install>/patches/<date>/`. Apply with one command: `night-shift apply <id>`. Safest."
+        default: true
+        required: true
+      - label: "Open Pull Requests"
+        value: pr
+        description: "One per patch. You review + merge on GitHub."
+      - label: "Merge PRs without your review"
+        value: merge
+        description: "Full delegation. Only check this if you really trust me."
+    store_as: patch_delivery
+
+  - id: q6_2
+    phase: 6
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: "'pr' in patch_delivery OR 'merge' in patch_delivery"
+    header: "PR base branch"
+    text: |
+      When I open PRs, target which branch?
+    options:
+      - label: "main (your repo's default)"
+        value: default
+        description: "Read from `gh repo view --json defaultBranchRef`."
+      - label: "Something specific"
+        value: custom
+        description: "Tell me the branch name."
+    store_as: base_branch
+
+  - id: q6_3
+    phase: 6
+    type: form
+    tier_filter: [full]
+    depends_on: "'pr' in patch_delivery OR 'merge' in patch_delivery"
+    header: "Commit style"
+    text: |
+      How should my commits look?
+    fields:
+      - name: format
+        type: single-select
+        options:
+          - label: "Conventional commits (fix:, feat:, chore:)"
+            value: conventional
+          - label: "Match your repo style (I'll read your last 50 commits)"
+            value: inferred
+          - label: "Custom prefix"
+            value: custom
+      - name: custom_prefix
+        type: free-text
+        depends_on: "format == custom"
+      - name: co_authored_by
+        type: confirmation
+        text: "Add `Co-Authored-By: Night Shift Agent` footer?"
+    store_as: commit_style
+
+  # ─────────────────────────── PHASE 7 ───────────────────────────
+  - id: q7_1
+    phase: 7
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Run mode"
+    text: |
+      Where and how should I run?
+    options:
+      - label: "On your Mac, automatically"
+        value: local
+        description: "Fires every day at your chosen time. Mac must be on; I can wake it if you allow."
+      - label: "In Anthropic's cloud"
+        value: cloud
+        description: "Runs without your Mac. You set up the schedule in claude.ai. Uses your Anthropic plan."
+      - label: "Both, with cloud as backup"
+        value: both
+        description: "Local primary; cloud kicks in if local crashed or hung. Most robust."
+      - label: "Only when triggered"
+        value: on_demand
+        description: "No schedule. You start me manually with `night-shift run` (or later a menu-bar button)."
+    store_as: execution_mode
+
+  - id: q7_2
+    phase: 7
+    type: form
+    tier_filter: [minimal, balanced, full]
+    depends_on: "execution_mode != on_demand"
+    header: "Schedule"
+    text: |
+      When should I run?
+    fields:
+      - name: days
+        type: multi-select
+        text: "Which days?"
+        options:
+          - label: "Mon"
+            value: 1
+          - label: "Tue"
+            value: 2
+          - label: "Wed"
+            value: 3
+          - label: "Thu"
+            value: 4
+          - label: "Fri"
+            value: 5
+          - label: "Sat"
+            value: 6
+          - label: "Sun"
+            value: 0
+      - name: time
+        type: free-text
+        text: "What time? (24h format, e.g. 00:00 or 02:30)"
+        validate: hh_mm_format
+    store_as: schedule
+
+  - id: q7_3
+    phase: 7
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: null
+    header: "Max run time"
+    text: |
+      What's the longest a single run can take before I must stop and ship what I have?
+    options:
+      - label: "1 hour"
+        value: 60
+        description: "Quick light runs."
+      - label: "3 hours"
+        value: 180
+        description: "Medium depth."
+      - label: "5 hours (default)"
+        value: 300
+        description: "Deep grind through PRs and bugs."
+      - label: "Custom"
+        value: custom
+        description: "Tell me the number of minutes."
+    store_as: hard_wall_minutes
+
+  - id: q7_4
+    phase: 7
+    type: single-select
+    tier_filter: [full]
+    depends_on: "execution_mode in [local, both]"
+    header: "Resilience"
+    text: |
+      If something goes wrong during a run (wifi drops, Mac tries to sleep, a tool hangs) — how hard should I try to recover?
+    options:
+      - label: "Don't try, just stop"
+        value: conservative
+        description: "Safest, you might get a partial brief."
+      - label: "Try to recover (default)"
+        value: balanced
+        description: "Keep Mac awake, reconnect wifi, restart myself once if I crash."
+      - label: "Try harder"
+        value: aggressive
+        description: "Same as default but more patient with rate limits and slow APIs."
+    store_as: resilience
+
+  # ─────────────────────────── PHASE 8 ───────────────────────────
+  - id: q8_1
+    phase: 8
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: "gh_repo in [private, public]"
+    header: "Self-improvement"
+    text: |
+      Want me to grade my own runs and propose tweaks to my own setup? (PRs land in my night-shift-agent repo, not your project.)
+    options:
+      - label: "Yes — auto-merge safe changes"
+        value: auto_merge_safe
+        description: "Safe stuff (logs, comments) auto-merges; bigger changes stay as drafts."
+      - label: "Yes — but only draft PRs"
+        value: draft_only
+        description: "Everything stays as draft for your review."
+      - label: "No — leave me as-is"
+        value: off
+        description: "No self-improvement loop."
+    store_as: meta_agent
+
+  - id: q8_2
+    phase: 8
+    type: single-select
+    tier_filter: [full]
+    depends_on: null
+    header: "Pre-night analyzer"
+    text: |
+      Want a pre-night signal analyzer? It runs a few hours before me, reads your day's activity (Claude Code sessions, Slack DMs, GitHub PRs, Linear updates) and writes a context report I'll read at midnight. Gives me extra signal to prioritize.
+    options:
+      - label: "Yes — set it up"
+        value: yes
+        description: "Adds a launchd job firing ~2 hours before main run. Same auto/draft/off behavior as meta-agent."
+      - label: "No — single agent is fine"
+        value: no
+        description: "Skip this feature."
+    store_as: daily_meta
+
+  # ─────────────────────────── PHASE 9 ───────────────────────────
+  - id: q9_1
+    phase: 9
+    type: single-select
+    tier_filter: [balanced, full]
+    depends_on: "os == macOS"
+    header: "Dashboard"
+    text: |
+      Want a menu-bar widget showing my status? (Last run, current state, alerts about stale patches.)
+    options:
+      - label: "Yes — install widget"
+        value: yes
+        description: "Uses SwiftBar (free, open-source). I'll guide you through install if needed."
+      - label: "No"
+        value: no
+        description: "Skip."
+    store_as: dashboard
+
+  # ─────────────────────────── PHASE 10 ───────────────────────────
+  - id: q10_1
+    phase: 10
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: null
+    header: "Confirm + create"
+    text_template: |
+      Here's what I'll create:
+
+      {{ generated_files_summary }}
+
+      Want to change anything before I create it?
+    options:
+      - label: "Looks good — create it all"
+        value: create
+        description: "Generate files now."
+      - label: "Change something"
+        value: change
+        description: "Free text — tell me what to change. I'll iterate."
+      - label: "Cancel"
+        value: cancel
+        description: "Bail out. I won't write anything."
+    store_as: phase10_confirm
+
+  - id: q10_2
+    phase: 10
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: "phase10_confirm == create AND execution_mode in [local, both]"
+    header: "Test fire"
+    text: |
+      Test-fire me now? (One attempt, won't push anything, just verify I work.)
+    options:
+      - label: "Yes (recommended)"
+        value: yes
+        description: "Runs `<install>/run.sh --dry-run`."
+      - label: "Skip — wait for scheduled run"
+        value: no
+        description: "I'll fire when scheduled."
+    store_as: test_fire
+
+  - id: q10_3
+    phase: 10
+    type: single-select
+    tier_filter: [minimal, balanced, full]
+    depends_on: "phase10_confirm == create AND gh_repo in [private, public]"
+    header: "Push to GitHub"
+    text: |
+      Push my initial setup to your GitHub repo now?
+    options:
+      - label: "Yes"
+        value: yes
+        description: "First commit + push."
+      - label: "Skip for now"
+        value: no
+        description: "Just local. You can push later."
+    store_as: gh_push

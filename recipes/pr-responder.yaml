@@ -1,0 +1,68 @@
+id: pr_responder
+name: "Address PR review comments"
+description: "When senior reviewers leave comments on your open PRs, the agent addresses them — generates patches that respond to each concrete change request."
+
+triggers:
+  - has_open_prs_with_reviews
+  - user_mentioned:review
+  - user_mentioned:PR
+  - user_mentioned:feedback
+
+required_services:
+  - github  # always needed — reads PR + comments
+helpful_services:
+  - slack  # for context if reviewer also DM'd
+  - linear  # if PRs link to tickets
+
+default_settings:
+  iterate_per_pr: true
+  max_pr_per_run: 8
+  cap_minutes_per_pr: 30
+  patch_class: mandatory  # review-driven = mandatory in the brief
+
+gather_steps:
+  description: |
+    For each open PR authored by user:
+      1. gh pr view <number> --json reviews,comments,files,state,headRefName
+      2. Extract unaddressed reviewer comments (no follow-up commit since the comment)
+      3. For each comment, read the file:line it references
+      4. Group comments by file to avoid duplicate edits
+
+  bash_pattern: |
+    gh pr list --author @me --state open --limit 20 --json number,title,headRefName,reviews,comments
+    # For each PR with unresolved reviews:
+    #   - extract comments authored by NOT-user, in_reply_to == null OR no follow-up
+    #   - sort by file:line
+
+implementation_pattern:
+  description: |
+    Per PR:
+      1. Detached checkout: git checkout --detach origin/<headRefName>
+      2. For each reviewer comment group (one per file):
+         - Read the comment text
+         - Read the file's current state
+         - Generate patch via coder subagent with:
+           - problem: <verbatim comment quote>
+           - approach: address the comment as requested OR push back if reviewer was wrong
+           - relevant_files: [the one file]
+         - Run verify methods
+         - If passes: hold the patch
+      3. Collect all per-comment patches for this PR; commit each as separate commit on a tmp branch
+      4. Generate format-patch series
+
+  brief_section: |
+    For each PR addressed:
+      - PR link + title
+      - List of comments addressed with one-line resolution per
+      - Patch file path / PR URL if delivery == "pr"
+      - Time spent
+
+  reviewer_persona_relevance: HIGH  # this recipe is exactly where persona matters most
+
+  argent_relevance: MEDIUM  # only for UI-affecting changes
+
+failure_modes:
+  - "PR has too many comments (>20)": ship top 5 by priority, brief explains the rest
+  - "Reviewer comment is ambiguous": flag as decisions-needed, don't guess
+  - "PR head branch has new commits since last check": re-fetch, don't ship stale patches
+  - "Tests fail after fix": iterate coder up to 3 times, then fail-with-explanation

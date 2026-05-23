@@ -1,0 +1,83 @@
+id: bug_triager
+name: "Triage bugs from external sources"
+description: "Reads bug reports from your chosen sources (Sentry, Linear, GitHub issues, Slack), ranks them by tractability, generates fix patches for the top items."
+
+triggers:
+  - has_sentry
+  - has_linear
+  - has_open_gh_issues
+  - user_mentioned:bug
+  - user_mentioned:error
+  - user_mentioned:crash
+  - user_mentioned:fix
+
+required_services:
+  - github
+helpful_services:
+  - sentry
+  - linear
+  - slack
+
+default_settings:
+  use_triager_subagent: true  # always — runs ONCE before bug loop
+  max_bugs_per_run: 8
+  cap_minutes_per_bug: 30
+  hypotheses_per_bug: 3  # H1/H2/H3
+  patch_class_per_severity:
+    P0: mandatory
+    P1: proactive
+    P2: experimental
+
+gather_steps:
+  description: |
+    From every connected bug source, gather unresolved items since last_run_at:
+      - Sentry: issues with last_seen > last_run_at, state=unresolved
+      - GH issues: open, labels include "bug" (or repo's bug label equivalent)
+      - Linear: tickets assignee=me, state in [backlog, in-progress], priority high
+      - Slack channel(s) configured: messages mentioning bug/broken/error in window
+
+  bash_pattern: |
+    # Sentry
+    # mcp__sentry__search_issues with org + project + status=unresolved
+
+    # GH
+    gh issue list --state open --label bug --json number,title,body,labels
+
+    # Linear
+    # mcp__linear__list_issues with assignee=me, state in backlog/in-progress
+
+    # Slack
+    # mcp__slack__read_channel with channel_id, since last_run_at
+
+implementation_pattern:
+  description: |
+    1. Pass all gathered bugs to triager subagent (one call)
+    2. Triager returns ranked list (top 8)
+    3. For each bug in rank order:
+       a. Read related files (use Sentry stack trace if available; else grep)
+       b. Form H1/H2/H3 hypotheses
+       c. Pick highest-confidence hypothesis (or all 3 if confidence is even)
+       d. For each chosen hypothesis:
+          - coder subagent generates patch
+          - verify methods run
+          - if UI-touching AND ui_automation enabled: tester subagent runs live-verify
+       e. If any patch passes: record + ship
+       f. If all fail: record as "investigated, no fix" in brief
+    4. Time cap per bug: 30 min. If over, move on.
+
+  brief_section: |
+    For each bug triaged:
+      - Source + ID + title
+      - Severity / tractability classification
+      - Hypotheses tried (with which one shipped, or "all failed")
+      - Patches delivered
+      - For "skipped due to" bugs: reason category
+
+  reviewer_persona_relevance: MEDIUM
+  argent_relevance: HIGH
+
+failure_modes:
+  - "Sentry issue with no stack trace": triager classifies as low-tractability, agent skips with note
+  - "Cross-cutting bug affecting many files": flag as decisions-needed (needs architecture review)
+  - "Bug requires external service down/changed": surface but don't try to fix
+  - "Cannot reproduce in dev environment": run tester subagent if applicable; else flag

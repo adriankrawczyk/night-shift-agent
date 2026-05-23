@@ -1,0 +1,64 @@
+id: maintenance_bot
+name: "Maintenance — branches, deps, cleanup"
+description: "Identifies stale branches, deprecated dependencies, dead code, and accumulating tech debt. Proposes cleanup patches or surfaces decisions-needed."
+
+triggers:
+  - has_stale_branches
+  - user_mentioned:maintenance
+  - user_mentioned:cleanup
+  - user_mentioned:deps
+  - user_mentioned:upgrade
+
+required_services:
+  - github
+helpful_services: []
+
+default_settings:
+  iterate: true
+  max_actions_per_run: 10
+  cap_minutes_per_action: 15
+  patch_class: experimental
+
+gather_steps:
+  description: |
+    Scan project for:
+      - Branches older than 30d with no recent commits (`git for-each-ref --sort=committerdate`)
+      - Dependencies in package.json/requirements.txt etc. that are >2 major versions behind
+      - Dead exports (knip/deadcode/vulture)
+      - Unused files (manually checking import graphs is hard — use available tools or skip)
+      - Commented-out code blocks present for >30d
+
+  bash_pattern: |
+    # Stale branches
+    git for-each-ref --sort=committerdate refs/heads/ \
+      --format='%(refname:short)|%(committerdate:short)|%(committerdate:relative)' | \
+      awk -F'|' '{ split($2,d,"-"); now=systime(); ts=mktime(d[1]" "d[2]" "d[3]" 0 0 0"); age=(now-ts)/86400; if(age>30) print }'
+
+    # Dep audit
+    npm outdated --json 2>/dev/null
+    # OR: cargo outdated --format=json
+    # OR: pip list --outdated --format=json
+
+implementation_pattern:
+  description: |
+    For each finding category:
+      1. Stale branches: list in brief, propose deletion command in brief (user runs it). Do NOT auto-delete.
+      2. Dep upgrades within minor: propose patch with version bump + run verify. If passes, ship as PR (per delivery config).
+      3. Dep upgrades across major: NEVER auto-bump. Surface as decisions-needed with link to changelog.
+      4. Dead exports: propose removal patch with verify check (`tsc` should still pass with the export removed).
+      5. Old commented-out code: propose removal patch with git blame note ("removed N-month-old commented block").
+
+  brief_section: |
+    Sections:
+      - Stale branches (count + list + deletion command)
+      - Dependencies needing attention (count by severity)
+      - Dead code candidates (count + sample)
+      - Patches delivered
+
+  reviewer_persona_relevance: MEDIUM
+  argent_relevance: LOW
+
+failure_modes:
+  - "Major dep bump breaks tests": NEVER ship the patch; flag as decisions-needed with full failure log
+  - "User asked you to KEEP a stale branch": honor it (check memory if available)
+  - "Dead code that's actually called via reflection / dynamic import": don't remove; flag

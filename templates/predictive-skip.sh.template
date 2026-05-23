@@ -1,0 +1,55 @@
+#!/usr/bin/env zsh
+# predictive-skip.sh — fires 5 min before the main routine. Checks if tomorrow's
+# brief was already shipped (rare edge case — user manually triggered earlier).
+# If so, writes a skip flag the main run.sh reads at startup, turning a 30-min
+# run into a 2-second exit.
+
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
+RUNS_DIR="$ROUTINE_DIR/runs"
+PREDICTIVE_LOG="$RUNS_DIR/predictive-skip.log"
+
+# Lock so two simultaneous predictive runs don't race
+PS_LOCK="$RUNS_DIR/.predictive-skip-lock"
+if ! mkdir "$PS_LOCK" 2>/dev/null; then
+  exit 0
+fi
+trap 'rm -rf "$PS_LOCK"' EXIT
+
+emit_log() {
+  echo "$(date -u +%FT%TZ) [predict] $*" >> "$PREDICTIVE_LOG"
+}
+
+emit_log "starting"
+
+# Tomorrow's date (local timezone)
+TOMORROW=$(date -v+1d +%Y-%m-%d 2>/dev/null || date -d 'tomorrow' +%Y-%m-%d 2>/dev/null)
+[[ -z "$TOMORROW" ]] && { emit_log "FATAL: couldn't compute tomorrow"; exit 1; }
+
+SKIP_FLAG="$RUNS_DIR/${TOMORROW}-skip.flag"
+
+# Check 1: was tomorrow's brief already delivered today?
+if [[ -f "$RUNS_DIR/${TOMORROW}-skip.flag" ]]; then
+  emit_log "skip flag for $TOMORROW already exists — no action"
+  exit 0
+fi
+
+# Check 2: does state.json show last_run for tomorrow already?
+STATE_FILE="$ROUTINE_DIR/state.json"
+if [[ -f "$STATE_FILE" ]]; then
+  last_run=$(jq -r '.last_run_at // ""' "$STATE_FILE" 2>/dev/null)
+  last_run_date="${last_run:0:10}"
+  if [[ "$last_run_date" == "$TOMORROW" ]]; then
+    emit_log "state.json shows last_run_at on $TOMORROW — writing skip flag"
+    echo "predictive-skip: state already shipped for $TOMORROW (manual trigger?)" > "$SKIP_FLAG"
+  fi
+fi
+
+# Log rotation — keep file under 100KB
+if [[ -f "$PREDICTIVE_LOG" ]] && [[ $(wc -c < "$PREDICTIVE_LOG" | tr -d ' ') -gt 102400 ]]; then
+  tail -200 "$PREDICTIVE_LOG" > "$PREDICTIVE_LOG.tmp" && mv "$PREDICTIVE_LOG.tmp" "$PREDICTIVE_LOG"
+fi
+
+emit_log "done"

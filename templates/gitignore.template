@@ -1,0 +1,39 @@
+# Night Shift Agent — gitignore
+
+# Runtime state
+runs/
+output/
+checkpoints/
+worktree/
+.lock/
+
+# Secrets — NEVER commit
+secrets.json
+*.secret
+.env
+.env.*
+!.env.example
+
+# OS junk
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+*.jsonl
+
+# Heartbeat / PID files
+*.pid
+heartbeat.pid
+wrapper.pid
+stall-watchdog.pid
+
+# Temp
+/tmp/
+*.tmp

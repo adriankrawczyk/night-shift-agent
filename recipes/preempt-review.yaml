@@ -1,0 +1,84 @@
+id: preempt_review
+name: "Preempt the next reviewer comment"
+description: "For PRs that don't have reviewer comments yet, proactively run a reviewer-style self-review and generate patches so the next human review is faster."
+
+triggers:
+  - has_open_non_draft_prs_without_recent_reviews
+  - reviewer_persona_enabled  # only useful if user has a persona configured
+  - user_mentioned:reviewer
+  - user_mentioned:preempt
+  - user_mentioned:proactive
+
+required_services:
+  - github
+helpful_services: []
+
+default_settings:
+  iterate_per_pr: true
+  max_pr_per_run: 4   # smaller cap than PR responder — speculative work
+  cap_minutes_per_pr: 20
+  patch_class: proactive
+
+prerequisite:
+  - reviewer_persona must be enabled and have at least one handle configured
+  - If reviewer-style.md doesn't exist or is empty, skip this recipe with a brief
+    note: "preempt-review skipped — no reviewer persona configured"
+
+gather_steps:
+  description: |
+    For each open non-draft PR by user that has NO recent reviewer activity:
+      - "Recent" = no review comments since the latest commit by user
+      - Skip if PR already has ≥3 comments from reviewers
+      - Read full PR diff via gh
+      - Read the touched files current state
+
+  bash_pattern: |
+    gh pr list --author @me --state open --json number,title,headRefName,isDraft,reviews,comments,updatedAt
+    # Filter:
+    #   .isDraft == false
+    #   AND (.reviews | length == 0 OR all reviews are older than latest commit)
+    #   AND .comments | length < 3
+    # For each matching PR:
+    #   gh pr diff <number>
+    #   gh pr view <number> --json files
+
+implementation_pattern:
+  description: |
+    Per PR:
+      1. Detached checkout: git checkout --detach origin/<headRefName>
+      2. Load reviewer persona file
+      3. Run reviewer subagent against the PR's diff:
+         Input: full diff + touched files current state + persona file
+         Output: 0-N projected review comments
+      4. For each projected comment with severity P0 or P1:
+         - coder subagent generates patch addressing it
+         - run verify methods (tsc/lint/test as configured)
+         - if passes, hold the patch
+      5. Skip P2/style projections (too speculative — saving for actual review feedback)
+      6. Bundle into one commit per PR with message:
+         "preempt: <one-line summary>"
+      7. Hold for user; don't auto-PR unless patch_delivery_pr is on
+
+  brief_section: |
+    For each PR addressed:
+      - PR link + title
+      - Projected reviewer comments addressed (P0/P1 only)
+      - Patches with WHY each was preempted
+      - Confidence per patch (was the projection clear or speculative)
+      - Note: "If actual reviewer disagrees with the projection, easy to revert this commit"
+
+  reviewer_persona_relevance: ESSENTIAL  # core of this recipe
+  argent_relevance: HIGH  # UI changes worth visual-verifying speculatively
+  meta_agent_signal: HIGH  # if user reverts many preempt commits, that signals persona drift
+
+failure_modes:
+  - "No reviewer persona configured": skip recipe with brief note
+  - "Reviewer persona too thin (< 5 categories)": run anyway but flag patches as "low confidence — persona is sparse"
+  - "PR diff too large (>500 lines)": cap analysis to top 5 files by change density; note in brief
+  - "Projected comment is ambiguous": don't generate speculative patch; flag for actual human review
+
+notes:
+  - This recipe has higher false-positive risk than other recipes (you're guessing what reviewer would say)
+  - Patches should be MORE conservative than usual — small, surgical, easy to revert
+  - User should expect 30-50% of preempt patches to be "reviewer wouldn't have flagged this" — that's OK, the value comes from the patches that DO match
+  - If your reviewer persona is sparse (few past reviews), this recipe will underperform — disable it until you have more history

@@ -1,0 +1,95 @@
+#!/usr/bin/env zsh
+# Night Shift Agent — SwiftBar menubar plugin
+# <bitbar.title>Night Shift Agent</bitbar.title>
+# <bitbar.version>v0.1</bitbar.version>
+# <bitbar.refresh>5s</bitbar.refresh>
+# <bitbar.author>Night Shift Agent installer</bitbar.author>
+# <bitbar.desc>Live status of your night-shift agent</bitbar.desc>
+
+# INTENTIONALLY NOT `set -u` — SwiftBar plugins that crash mid-render
+# disappear from the menubar until next refresh (~5s). Many probes here
+# legitimately return empty values; missing-var crashes are worse than a stale row.
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+INSTALL_DIR="{{ install_dir }}"
+RUNS_DIR="$INSTALL_DIR/runs"
+CACHE_DIR="$HOME/.cache/night-shift-agent"
+mkdir -p "$CACHE_DIR"
+
+# Timeout helper (perl-alarm — gtimeout reliability was flaky under SwiftBar)
+with_timeout() {
+  local secs="$1"; shift
+  perl -e 'use POSIX ":sys_wait_h"; my $secs=shift; my $pid=fork; if($pid==0){exec @ARGV} local $SIG{ALRM}=sub{kill 9,$pid;exit 124}; alarm $secs; waitpid $pid,0; exit $?>>8' "$secs" "$@" 2>/dev/null
+}
+
+# Cache helper (avoid re-fetching expensive things every 5s)
+cached() {
+  local key="$1" max_age="$2"; shift 2
+  local cache_file="$CACHE_DIR/$key"
+  if [[ -f "$cache_file" ]]; then
+    local age=$(( $(date +%s) - $(stat -f %m "$cache_file") ))
+    if (( age < max_age )); then
+      cat "$cache_file"
+      return 0
+    fi
+  fi
+  "$@" > "$cache_file" 2>/dev/null
+  cat "$cache_file"
+}
+
+# === MENU BAR (top line — what user sees in the menubar) ===
+
+WRAPPER_PID_FILE="$RUNS_DIR/wrapper.pid"
+TODAY=$(date +%Y-%m-%d)
+TODAY_LOG="$RUNS_DIR/${TODAY}.log"
+
+if [[ -f "$WRAPPER_PID_FILE" ]] && kill -0 "$(cat $WRAPPER_PID_FILE)" 2>/dev/null; then
+  # Running — show elapsed
+  if [[ -f "$RUNS_DIR/${TODAY}/started.txt" ]]; then
+    start_iso=$(cat "$RUNS_DIR/${TODAY}/started.txt")
+    start_ep=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$start_iso" +%s 2>/dev/null)
+    [[ -n "$start_ep" ]] && elapsed_min=$(( ($(date +%s) - start_ep) / 60 ))
+    echo "🌙 RUNNING (${elapsed_min:-?}m)"
+  else
+    echo "🌙 RUNNING"
+  fi
+elif [[ -f "$RUNS_DIR/${TODAY}-skip.flag" ]]; then
+  echo "🌙 skip"
+elif [[ -f "$TODAY_LOG" ]] && grep -q delivery_complete "$TODAY_LOG" 2>/dev/null; then
+  echo "🌙 ✅"
+elif [[ -f "$TODAY_LOG" ]] && grep -qiE 'fatal|error|crashed' "$TODAY_LOG" 2>/dev/null; then
+  echo "🌙 ❌"
+else
+  echo "🌙"
+fi
+
+# === DROPDOWN ===
+echo "---"
+
+# Latest run summary
+echo "Last run: $(ls -t "$RUNS_DIR"/2*.log 2>/dev/null | head -1 | xargs basename 2>/dev/null | sed 's/\.log//')"
+
+if [[ -f "$TODAY_LOG" ]]; then
+  patches_today=$(find "$INSTALL_DIR/patches/$TODAY" -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
+  echo "Patches today: $patches_today"
+fi
+
+echo "---"
+
+# Actions
+echo "Trigger manual run | bash='$INSTALL_DIR/run.sh' terminal=true refresh=true"
+echo "Tail latest log | bash='$INSTALL_DIR/cli/night-shift' param1=logs terminal=true"
+echo "Show triage (last 7) | bash='$INSTALL_DIR/cli/night-shift' param1=triage terminal=true"
+echo "Open install folder | bash='open' param1='$INSTALL_DIR' terminal=false"
+
+{{#if meta_agent_enabled}}
+echo "---"
+GH_REPO="{{ gh_repo_full }}"
+OPEN_META_PRS=$(cached open_meta_prs 300 gh pr list --repo "$GH_REPO" --state open --search '[meta-agent]' --json number 2>/dev/null | jq length 2>/dev/null)
+[[ -n "$OPEN_META_PRS" && "$OPEN_META_PRS" -gt 0 ]] && \
+  echo "🤖 ${OPEN_META_PRS} meta-agent PR(s) pending | href='https://github.com/$GH_REPO/pulls'"
+{{/if}}
+
+echo "---"
+echo "Reload plugin | refresh=true"

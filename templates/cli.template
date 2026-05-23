@@ -1,0 +1,134 @@
+#!/usr/bin/env zsh
+# night-shift — CLI helper for the Night Shift Agent installed at {{ install_dir }}
+#
+# Subcommands:
+#   night-shift apply <id>      Apply a patch from <install>/patches/ by partial id match
+#   night-shift apply <id> --force   Apply even if working tree is dirty
+#   night-shift run [--dry-run]      Trigger a manual run (same as scheduled)
+#   night-shift status              Show last run status + next scheduled run
+#   night-shift logs [N]            Tail last N lines of latest log (default 50)
+#   night-shift triage              Print triage report (last 7 runs)
+#   night-shift restore [snap-id]   Roll back user repo to last-night snapshot
+#   night-shift help
+
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
+{{#each projects}}
+USER_REPO_{{ @index }}="${NIGHT_SHIFT_PROJECT_{{ @index }}:-{{ this.path }}}"
+{{/each}}
+USER_REPO="${USER_REPO_0}"
+
+PATCHES_DIR="$ROUTINE_DIR/patches"
+RUNS_DIR="$ROUTINE_DIR/runs"
+
+usage() {
+  sed -n '4,12p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# Find a patch by partial id match (zsh case-insensitive ${var:l})
+find_patch() {
+  local id_l="${1:l}"
+  local matches=()
+  # Search all patches under <patches>/YYYY-MM-DD/
+  while IFS= read -r p; do
+    local base="${p:t:l}"
+    if [[ "$base" == *"$id_l"* ]]; then
+      matches+=("$p")
+    fi
+  done < <(find "$PATCHES_DIR" -name '*.patch' 2>/dev/null | sort -r)
+  if [[ ${#matches[@]} -eq 0 ]]; then
+    echo "No patch matching '$1' under $PATCHES_DIR" >&2
+    return 1
+  elif [[ ${#matches[@]} -gt 1 ]]; then
+    echo "Multiple patches match '$1':" >&2
+    printf '  %s\n' "${matches[@]}" >&2
+    return 2
+  fi
+  echo "${matches[1]}"
+}
+
+cmd_apply() {
+  local id="$1"
+  local force=0
+  [[ "${2:-}" == "--force" ]] && force=1
+
+  local patch_file
+  patch_file=$(find_patch "$id") || return $?
+  echo "Applying: $patch_file"
+
+  if [[ $force -eq 0 ]]; then
+    if ! git -C "$USER_REPO" diff --quiet || ! git -C "$USER_REPO" diff --cached --quiet; then
+      echo "ERROR: working tree is dirty. Use --force to apply anyway." >&2
+      git -C "$USER_REPO" status --short
+      return 1
+    fi
+  fi
+
+  if git -C "$USER_REPO" apply --check "$patch_file" 2>/dev/null; then
+    git -C "$USER_REPO" apply "$patch_file" && echo "✓ Applied successfully"
+  else
+    echo "Patch doesn't apply cleanly. Trying 3-way merge..."
+    git -C "$USER_REPO" apply --3way "$patch_file"
+  fi
+}
+
+cmd_run() {
+  local args=""
+  [[ "${1:-}" == "--dry-run" ]] && args="--dry-run"
+  "$ROUTINE_DIR/run.sh" $args
+}
+
+cmd_status() {
+  local latest_log
+  latest_log=$(ls -t "$RUNS_DIR"/*.log 2>/dev/null | head -1)
+  if [[ -z "$latest_log" ]]; then
+    echo "No runs yet."
+    return 0
+  fi
+  local last_date; last_date=$(basename "$latest_log" .log)
+  echo "Last run: $last_date"
+  # Tail relevant status
+  grep -E '(Run finished|FATAL|delivery_complete|skip)' "$latest_log" | tail -5
+  # Next scheduled run (from launchd plist)
+  local plist="$HOME/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist"
+  if [[ -f "$plist" ]]; then
+    echo ""
+    echo "Schedule:"
+    /usr/libexec/PlistBuddy -c "Print StartCalendarInterval" "$plist" 2>/dev/null | head -20
+  fi
+}
+
+cmd_logs() {
+  local n="${1:-50}"
+  local latest_log
+  latest_log=$(ls -t "$RUNS_DIR"/*.log 2>/dev/null | head -1)
+  [[ -z "$latest_log" ]] && { echo "No logs yet."; return 0; }
+  tail -n "$n" "$latest_log"
+}
+
+cmd_triage() {
+  "$ROUTINE_DIR/triage.sh" 7
+}
+
+cmd_restore() {
+  local id="${1:-latest}"
+  "$ROUTINE_DIR/protect-user-state.sh" rollback "$id"
+}
+
+# Main dispatch
+case "${1:-}" in
+  apply)   shift; cmd_apply "$@" ;;
+  run)     shift; cmd_run "$@" ;;
+  status)  shift; cmd_status "$@" ;;
+  logs)    shift; cmd_logs "$@" ;;
+  triage)  shift; cmd_triage "$@" ;;
+  restore) shift; cmd_restore "$@" ;;
+  help|--help|-h|"") usage ;;
+  *)
+    echo "Unknown subcommand: $1" >&2
+    usage
+    exit 2
+    ;;
+esac

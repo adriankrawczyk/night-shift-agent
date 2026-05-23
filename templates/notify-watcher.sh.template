@@ -1,0 +1,89 @@
+#!/usr/bin/env zsh
+# notify-watcher.sh — fires macOS notifications on state transitions.
+# Runs every 60 seconds via launchd. Compares snapshot of state vs prior;
+# fires terminal-notifier on transitions only (no spam).
+
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+INSTALL_DIR="{{ install_dir }}"
+RUNS_DIR="$INSTALL_DIR/runs"
+STATE_FILE="$RUNS_DIR/.notify-watcher-state.json"
+TODAY=$(date +%Y-%m-%d)
+
+notify() {
+  local title="$1" message="$2"
+  if command -v terminal-notifier >/dev/null 2>&1; then
+    terminal-notifier -title "$title" -message "$message" -group "night-shift-agent" 2>/dev/null
+  else
+    osascript -e "display notification \"$message\" with title \"$title\"" 2>/dev/null
+  fi
+}
+
+current_state() {
+  local wrapper_pid_file="$RUNS_DIR/wrapper.pid"
+  local today_log="$RUNS_DIR/${TODAY}.log"
+  local skip_flag="$RUNS_DIR/${TODAY}-skip.flag"
+  local state="idle"
+
+  if [[ -f "$wrapper_pid_file" ]] && kill -0 "$(cat $wrapper_pid_file)" 2>/dev/null; then
+    state="running"
+  elif [[ -f "$skip_flag" ]]; then
+    state="skipped"
+  elif [[ -f "$today_log" ]] && grep -q delivery_complete "$today_log" 2>/dev/null; then
+    state="success"
+  elif [[ -f "$today_log" ]] && grep -qiE 'fatal|crashed|sigkill' "$today_log" 2>/dev/null; then
+    state="failed"
+  fi
+  echo "$state"
+}
+
+prev_state=""
+if [[ -f "$STATE_FILE" ]]; then
+  prev_state=$(jq -r '.state' "$STATE_FILE" 2>/dev/null)
+  prev_date=$(jq -r '.date' "$STATE_FILE" 2>/dev/null)
+  # Reset if it's a new day
+  [[ "$prev_date" != "$TODAY" ]] && prev_state=""
+fi
+
+new_state=$(current_state)
+
+# Persist
+cat > "$STATE_FILE" <<EOF
+{"state":"$new_state","date":"$TODAY","ts":"$(date -u +%FT%TZ)"}
+EOF
+
+# Transition detection
+case "$prev_state→$new_state" in
+  "→running"|"idle→running")
+    notify "Night Shift Agent" "Started run for $TODAY"
+    ;;
+  "running→success")
+    patches=$(find "$INSTALL_DIR/patches/$TODAY" -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
+    notify "Night Shift Agent ✅" "Run complete. ${patches} patches generated."
+    ;;
+  "running→failed")
+    notify "Night Shift Agent ❌" "Run failed. Check the log."
+    ;;
+  "running→idle")
+    # Wrapper died without finishing
+    notify "Night Shift Agent ⚠️" "Process died unexpectedly. Check the log."
+    ;;
+esac
+
+# Stale-patches alert (no transition — fires once per day at 7am-ish if applicable)
+TODAY_HOUR=$(date +%H)
+if [[ "$TODAY_HOUR" == "07" ]] || [[ "$TODAY_HOUR" == "08" ]]; then
+  STALE_ALERT_FLAG="$RUNS_DIR/.stale-alert-${TODAY}.flag"
+  if [[ ! -f "$STALE_ALERT_FLAG" ]]; then
+    stale_count=0
+    if [[ -d "$INSTALL_DIR/patches" ]]; then
+      # Patches older than 7 days that haven't been applied
+      stale_count=$(find "$INSTALL_DIR/patches" -name '*.patch' -mtime +7 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    if (( stale_count >= 5 )); then
+      notify "Night Shift Agent 📌" "${stale_count} patches are >7 days old. Apply or archive."
+      touch "$STALE_ALERT_FLAG"
+    fi
+  fi
+fi

@@ -1,0 +1,67 @@
+id: draft_pr_finisher
+name: "Finish your draft PRs"
+description: "Advances your draft (WIP) PRs — addresses self-noted TODOs, runs readiness checks, generates patches to make them ready-for-review."
+
+triggers:
+  - has_draft_prs
+  - user_mentioned:draft
+  - user_mentioned:WIP
+  - user_mentioned:finish
+
+required_services:
+  - github
+helpful_services:
+  - linear  # for spec context
+
+default_settings:
+  iterate_per_draft: true
+  max_drafts_per_run: 3
+  cap_minutes_per_draft: 45
+  patch_class: proactive
+
+gather_steps:
+  description: |
+    For each draft PR by user:
+      1. Read PR description for "TODO", "FIXME", "later", "WIP" markers
+      2. Read recent commits on the branch for inline TODOs the author left
+      3. Read all changed files for TODO/FIXME/XXX comments in those files
+      4. Check current test/lint/typecheck state of the branch
+      5. Identify what's blocking "ready for review" status
+
+  bash_pattern: |
+    gh pr list --author @me --state open --draft --json number,title,body,headRefName
+    # For each draft, gather:
+    #   - PR body TODOs
+    #   - git log <branch> --grep TODO
+    #   - grep TODO/FIXME/XXX in changed files
+
+implementation_pattern:
+  description: |
+    Per draft PR:
+      1. Detached checkout
+      2. Triage TODOs by tractability (use triager subagent if many)
+      3. For each tractable TODO:
+         - coder subagent with the TODO as problem statement
+         - verify
+         - hold patch
+      4. Run readiness checks:
+         - all tests pass
+         - lint clean
+         - typecheck clean
+         - no obvious incomplete features (placeholder strings, mock data)
+      5. If readiness checks pass: propose marking draft as ready-for-review (in brief; don't auto-mark)
+      6. Compose verdict: ready | ready-with-notes | not-ready | blocked
+
+  brief_section: |
+    For each draft addressed:
+      - PR link + title
+      - TODOs addressed (with one-line resolution each)
+      - Readiness verdict + reasoning
+      - Patches delivered
+
+  reviewer_persona_relevance: MEDIUM
+  argent_relevance: HIGH  # drafts often have unfinished UI
+
+failure_modes:
+  - "Draft has no clear scope": surface as decisions-needed, skip
+  - "Spec drifted since draft was opened": flag the discrepancy, don't silently align to old spec

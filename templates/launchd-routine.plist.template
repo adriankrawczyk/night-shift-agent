@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.{{ user_short }}.night-shift-routine</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-c</string>
+        <string>{{ install_dir }}/run.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{ install_dir }}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{ user_home }}</string>
+        <key>USER</key>
+        <string>{{ user_name }}</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>{{ install_dir }}/runs/launchd.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{ install_dir }}/runs/launchd.stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    {{#if has_specific_days}}
+    <key>StartCalendarInterval</key>
+    <array>
+        {{#each schedule.days}}
+        <dict>
+            <key>Weekday</key>
+            <integer>{{ this }}</integer>
+            <key>Hour</key>
+            <integer>{{ ../schedule.hour }}</integer>
+            <key>Minute</key>
+            <integer>{{ ../schedule.minute }}</integer>
+        </dict>
+        {{/each}}
+    </array>
+    {{else}}
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>{{ schedule.hour }}</integer>
+        <key>Minute</key>
+        <integer>{{ schedule.minute }}</integer>
+    </dict>
+    {{/if}}
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

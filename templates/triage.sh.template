@@ -1,0 +1,112 @@
+#!/usr/bin/env zsh
+# triage.sh — Morning status report. Shows ✅/⚠/❌ status of last N nights.
+#
+# Usage:
+#   ./triage.sh           # last 7 days
+#   ./triage.sh 14        # last 14 days
+#   ./triage.sh --tag     # write per-run markdown to runs/<date>-tag.md
+
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
+RUNS_DIR="$ROUTINE_DIR/runs"
+
+N=7
+TAG_MODE=0
+for arg in "$@"; do
+  case "$arg" in
+    --tag) TAG_MODE=1 ;;
+    [0-9]*) N=$arg ;;
+  esac
+done
+
+# All dated log files, newest first (avoiding mapfile — not in macOS bash 3.2)
+FILES=()
+while IFS= read -r f; do
+  FILES+=("$f")
+done < <(ls -t "$RUNS_DIR"/20*.log 2>/dev/null | head -n "$N")
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  echo "No runs found in $RUNS_DIR"
+  exit 0
+fi
+
+echo "=== Night Shift Agent — last ${#FILES[@]} runs ==="
+echo
+
+printf "%-12s  %-7s  %-9s  %-12s  %s\n" "Date" "Status" "Duration" "Patches" "Note"
+printf "%-12s  %-7s  %-9s  %-12s  %s\n" "----" "------" "--------" "-------" "----"
+
+for f in "${FILES[@]}"; do
+  local date_str; date_str=$(basename "$f" .log)
+  local status="✓"
+  local dur="?"
+  local patches="?"
+  local note=""
+
+  # Status detection
+  if grep -q "Run finished" "$f" 2>/dev/null; then
+    if grep -q "delivery_complete" "$f"; then
+      status="✅"
+    else
+      status="⚠"
+      note=$(grep -E '(FAIL|ERROR|skipped)' "$f" | tail -1 | head -c 60)
+    fi
+  elif grep -q -i 'fatal\|crashed\|sigkill\|sigterm.*killed' "$f"; then
+    status="❌"
+    note=$(grep -iE 'fatal|crashed' "$f" | head -1 | head -c 60)
+  fi
+
+  # Skip detection
+  if grep -q "skip_via_flag\|skip declared by agent" "$f"; then
+    status="⏭"
+    note="agent-declared skip"
+  fi
+
+  # Duration (from heartbeat or run timestamps)
+  if grep -q 'started.txt\|Run finished' "$f"; then
+    local start_ts end_ts
+    start_ts=$(head -5 "$f" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z' | head -1)
+    end_ts=$(tail -10 "$f" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z' | tail -1)
+    if [[ -n "$start_ts" && -n "$end_ts" ]]; then
+      # macOS date math
+      local s_epoch e_epoch
+      s_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$start_ts" +%s 2>/dev/null || echo 0)
+      e_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$end_ts" +%s 2>/dev/null || echo 0)
+      if (( e_epoch > s_epoch )); then
+        dur="$(( (e_epoch - s_epoch) / 60 ))min"
+      fi
+    fi
+  fi
+
+  # Patches count for this date
+  local patches_dir="$ROUTINE_DIR/patches/$date_str"
+  if [[ -d "$patches_dir" ]]; then
+    patches=$(find "$patches_dir" -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
+  else
+    patches=0
+  fi
+
+  printf "%-12s  %-7s  %-9s  %-12s  %s\n" "$date_str" "$status" "$dur" "$patches" "$note"
+
+  # Tag mode: emit a per-run markdown
+  if [[ $TAG_MODE -eq 1 ]]; then
+    local tag_file="$RUNS_DIR/${date_str}-tag.md"
+    {
+      echo "# Run: $date_str"
+      echo ""
+      echo "Status: $status"
+      echo "Duration: $dur"
+      echo "Patches: $patches"
+      echo ""
+      echo "## Tail of log"
+      echo '```'
+      tail -50 "$f"
+      echo '```'
+    } > "$tag_file"
+  fi
+done
+
+echo
+echo "Tip: ./triage.sh --tag writes per-run markdown to $RUNS_DIR"

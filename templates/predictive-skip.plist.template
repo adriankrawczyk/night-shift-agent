@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.{{ user_short }}.night-shift-predictive-skip</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-c</string>
+        <string>{{ install_dir }}/predictive-skip.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{ install_dir }}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{ user_home }}</string>
+        <key>USER</key>
+        <string>{{ user_name }}</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>{{ install_dir }}/runs/predictive-skip.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{ install_dir }}/runs/predictive-skip.stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Fires 5 minutes before the main routine (Q7.2 time minus 5 min) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>{{ predictive_skip_hour }}</integer>
+        <key>Minute</key>
+        <integer>{{ predictive_skip_minute }}</integer>
+    </dict>
+
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

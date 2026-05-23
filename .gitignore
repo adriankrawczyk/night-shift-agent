@@ -1,0 +1,19 @@
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+runs/
+output/
+/tmp/
+
+# Project-internal — not for distribution
+# (mock-persona dry-runs, scratch notes — not for shipping)
+dry-runs/
+.scratch/
+NOTES.local.md
