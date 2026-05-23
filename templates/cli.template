@@ -191,6 +191,20 @@ cmd_doctor() {
   fi
 
   echo ""
+  echo "## gh CLI auth"
+  if command -v gh >/dev/null 2>&1; then
+    if gh auth status >/dev/null 2>&1; then
+      local gh_user
+      gh_user=$(gh api user --jq .login 2>/dev/null || echo "?")
+      check_ok "gh authed as $gh_user"
+    else
+      check_fail "gh not authenticated — run: gh auth login"
+    fi
+  else
+    check_fail "gh missing — PR-delivery recipes will fail without it"
+  fi
+
+  echo ""
   echo "## MCP connectivity"
   if claude mcp list 2>/dev/null | grep -q '✓ Connected'; then
     local connected needs_auth
