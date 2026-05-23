@@ -500,9 +500,16 @@ preflight() {
   if (( warns > 0 )); then return 2; fi
   return 0
 }
+```
 
-# Use site — DO NOT use `if ! preflight; then pf_rc=$?`. The `!` operator's
-# exit code (0) overwrites $? in the then-block. Capture rc BEFORE branching.
+**Caller's responsibility:**
+
+The template (or whoever inlines P12) calls `preflight` itself — pattern only defines the function. This keeps the template in control of invocation order (e.g., `--preflight` flag may short-circuit before pattern P11 / lock acquire).
+
+**Use-site reminder for the caller** — DO NOT use `if ! preflight; then pf_rc=$?`. The `!` operator's exit code (0) overwrites `$?` in the then-block. Capture rc BEFORE branching:
+
+<!-- Documentation block (not extracted into rendered files — note the `text` fence, not `bash`). -->
+```text
 preflight
 PF_RC=$?
 if [[ $PF_RC -eq 1 ]]; then
