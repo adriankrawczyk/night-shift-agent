@@ -143,7 +143,8 @@ start_stall_watchdog() {
     set +u
     exec 2>>"$sw_log"
     # The encoded CC project dir (Claude Code's per-project transcript storage)
-    local proj_dir="$HOME/.claude/projects/$(pwd | sed -e 's|^/||' -e 's|/|-|g' | sed 's|^|-|')"
+    local proj_dir
+    proj_dir="$HOME/.claude/projects/$(pwd | sed -e 's|^/||' -e 's|/|-|g' | sed 's|^|-|')"
     while true; do
       sleep "$STALL_INTERVAL"
       kill -0 "$parent_pid" 2>/dev/null || exit 0
@@ -401,7 +402,8 @@ Cleanup releases:
 # Snapshot before mutation
 ub_snapshot() {
   local id="$1"
-  local stash_msg="night-shift-snap-${id}-$(date -u +%FT%TZ)"
+  local stash_msg
+  stash_msg="night-shift-snap-${id}-$(date -u +%FT%TZ)"
   git -C "$USER_REPO" stash push --include-untracked --quiet -m "$stash_msg"
   echo "$stash_msg" > "$ROUTINE_DIR/.active-snapshot"
 }

@@ -28,8 +28,8 @@ mkdir -p "$CHECKPOINTS_DIR"
 
 filter_untracked_by_size() {
   local list="$1" filtered="$1.filtered" excluded="$1.excluded"
-  > "$filtered"
-  > "$excluded"
+  : > "$filtered"
+  : > "$excluded"
   while IFS= read -r rel; do
     [[ -z "$rel" ]] && continue
     local full="$USER_REPO/$rel"
@@ -45,7 +45,8 @@ filter_untracked_by_size() {
 
 cmd_begin() {
   local id="$1"
-  local dir="$CHECKPOINTS_DIR/begin-$id-$(date -u +%FT%H%M%S)"
+  local dir
+  dir="$CHECKPOINTS_DIR/begin-$id-$(date -u +%FT%H%M%S)"
   mkdir -p "$dir"
 
   # Capture HEAD + branch
@@ -53,7 +54,8 @@ cmd_begin() {
   git -C "$USER_REPO" symbolic-ref --short HEAD > "$dir/orig_ref.txt" 2>/dev/null || echo "DETACHED" > "$dir/orig_ref.txt"
 
   # Stash (include untracked)
-  local stash_msg="night-shift-checkpoint-${id}-$(date -u +%FT%TZ)"
+  local stash_msg
+  stash_msg="night-shift-checkpoint-${id}-$(date -u +%FT%TZ)"
   if git -C "$USER_REPO" stash push --include-untracked --quiet -m "$stash_msg" 2>>"$dir/log.txt"; then
     echo "$stash_msg" > "$dir/stash_msg.txt"
   else
@@ -140,7 +142,8 @@ cmd_snapshot() {
     fi
   fi
 
-  local dir="$CHECKPOINTS_DIR/snap-${label}-$(date -u +%FT%H%M%S)"
+  local dir
+  dir="$CHECKPOINTS_DIR/snap-${label}-$(date -u +%FT%H%M%S)"
   mkdir -p "$dir"
   echo "$cur_head" > "$dir/orig_head.txt"
   echo "$cur_ref" > "$dir/orig_ref.txt"

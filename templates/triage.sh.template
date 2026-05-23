@@ -39,11 +39,11 @@ printf "%-12s  %-7s  %-9s  %-12s  %s\n" "Date" "Status" "Duration" "Patches" "No
 printf "%-12s  %-7s  %-9s  %-12s  %s\n" "----" "------" "--------" "-------" "----"
 
 for f in "${FILES[@]}"; do
-  local date_str; date_str=$(basename "$f" .log)
-  local status="✓"
-  local dur="?"
-  local patches="?"
-  local note=""
+  date_str=$(basename "$f" .log)
+  status="✓"
+  dur="?"
+  patches="?"
+  note=""
 
   # Status detection
   if grep -q "Run finished" "$f" 2>/dev/null; then
@@ -66,12 +66,10 @@ for f in "${FILES[@]}"; do
 
   # Duration (from heartbeat or run timestamps)
   if grep -q 'started.txt\|Run finished' "$f"; then
-    local start_ts end_ts
     start_ts=$(head -5 "$f" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z' | head -1)
     end_ts=$(tail -10 "$f" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z' | tail -1)
     if [[ -n "$start_ts" && -n "$end_ts" ]]; then
       # macOS date math
-      local s_epoch e_epoch
       s_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$start_ts" +%s 2>/dev/null || echo 0)
       e_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$end_ts" +%s 2>/dev/null || echo 0)
       if (( e_epoch > s_epoch )); then
@@ -81,7 +79,7 @@ for f in "${FILES[@]}"; do
   fi
 
   # Patches count for this date
-  local patches_dir="$ROUTINE_DIR/patches/$date_str"
+  patches_dir="$ROUTINE_DIR/patches/$date_str"
   if [[ -d "$patches_dir" ]]; then
     patches=$(find "$patches_dir" -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
   else
@@ -92,7 +90,7 @@ for f in "${FILES[@]}"; do
 
   # Tag mode: emit a per-run markdown
   if [[ $TAG_MODE -eq 1 ]]; then
-    local tag_file="$RUNS_DIR/${date_str}-tag.md"
+    tag_file="$RUNS_DIR/${date_str}-tag.md"
     {
       echo "# Run: $date_str"
       echo ""

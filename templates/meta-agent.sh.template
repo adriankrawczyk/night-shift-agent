@@ -9,6 +9,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/us
 export GIT_OPTIONAL_LOCKS=0
 
 ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
+# shellcheck disable=SC2034  # RUNS_DIR used by meta-prompt.md via env
 RUNS_DIR="$ROUTINE_DIR/runs"
 META_LOG_DIR="$ROUTINE_DIR/runs"
 TODAY_LOCAL=$(date +%Y-%m-%d)
@@ -84,6 +85,7 @@ else
 fi
 
 META_EXIT="${pipestatus[1]:-0}"
+emit_log "meta-claude exited with code $META_EXIT"
 
 # === Read decision file ===
 DECISION_FILE="/tmp/meta-agent-decision.json"
