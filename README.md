@@ -75,7 +75,8 @@ The wizard's Q7.3 (hard wall) is the main cost knob. Minimal tier defaults to a 
 ```
 night-shift-agent/                   ← installer (this repo)
 ├── INSTALL.md                       ← short paste-into-Claude bootstrap
-├── META_PROMPT.md                   ← the wizard engine — full 10-phase flow + variables schema
+├── META_PROMPT.md                   ← the wizard engine (core principles, startup, variables schema, scan edges)
+├── phases/                          ← per-phase logic (phase-0..phase-10.md), loaded on demand
 ├── wizard-questions.yaml            ← question data (edit this to change Qs)
 ├── BASH_PATTERNS.md                 ← 18 universal bash patterns (P1..P18), pulled by templates at render time
 ├── MCP_PATTERNS.md                  ← universal MCP install procedure + recipes for top 10 MCPs

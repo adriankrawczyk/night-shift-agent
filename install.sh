@@ -88,7 +88,7 @@ else
 fi
 
 # === Integrity check ===
-required=(META_PROMPT.md wizard-questions.yaml BASH_PATTERNS.md MCP_PATTERNS.md PERSONA_BUILDER.md COORD_PATTERN.md VERSION templates recipes)
+required=(META_PROMPT.md wizard-questions.yaml BASH_PATTERNS.md MCP_PATTERNS.md PERSONA_BUILDER.md COORD_PATTERN.md VERSION templates recipes phases)
 for f in "${required[@]}"; do
   if [ ! -e "$INSTALLER_DIR/$f" ]; then
     c_red "Integrity check failed: missing $INSTALLER_DIR/$f"

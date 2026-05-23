@@ -12,7 +12,7 @@ git clone https://github.com/adriankrawczyk/night-shift-agent ~/.night-shift-ins
 
 > Read `~/.night-shift-installer/META_PROMPT.md` and run the Night Shift Agent installer wizard. The installer is at `~/.night-shift-installer`.
 
-That's it. The wizard takes over from there — META_PROMPT.md contains the full startup sequence, all 10 phases, the variables schema, and the file-generation logic.
+That's it. The wizard takes over from there — `META_PROMPT.md` contains the startup sequence + variables schema + file-generation logic, and it pulls in per-phase logic from `phases/phase-N.md` files as needed.
 
 ## Troubleshooting
 
