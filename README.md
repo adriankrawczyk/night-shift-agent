@@ -61,6 +61,15 @@ By tier, total question count: **Minimal ~10**, **Balanced ~25**, **Full ~40**.
 - **Linux** — planned for v0.2 (systemd, nmcli, notify-send, journalctl)
 - **Windows** — under consideration
 
+## Cost
+
+The night agent runs against your **Claude Code** install — so the model billing is whatever your Claude plan covers.
+
+- **Claude Pro / Max plan** (recommended): nightly runs use your existing subscription. Effective marginal cost: $0.
+- **Anthropic API direct** (if you use Claude Code with a raw API key): a Full-tier setup with daily-meta + nightly + meta-agent fires ~3 long sessions/day. Heavy nights (300-min hard wall, many patches) can run 200k-1M output tokens per night. Rough order of magnitude with Sonnet pricing: **$3-15/day**, $90-450/month. With Haiku for subagents you can cut this significantly. There is no published estimate — measure with `claude --print --max-budget-usd N` locally for a few nights to calibrate.
+
+The wizard's Q7.3 (hard wall) is the main cost knob. Minimal tier defaults to a 60-min wall; Full tier to 300 min.
+
 ## Architecture
 
 ```

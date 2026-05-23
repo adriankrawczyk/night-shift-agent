@@ -9,6 +9,7 @@
 #   night-shift logs [N]            Tail last N lines of latest log (default 50)
 #   night-shift triage              Print triage report (last 7 runs)
 #   night-shift restore [snap-id]   Roll back user repo to last-night snapshot
+#   night-shift doctor              Runtime health check (launchd, claude, MCPs, disk, logs)
 #   night-shift help
 
 set -uo pipefail
@@ -117,6 +118,120 @@ cmd_restore() {
   "$ROUTINE_DIR/protect-user-state.sh" rollback "$id"
 }
 
+cmd_doctor() {
+  local fails=0
+  local warns=0
+  local ok_count=0
+  local p_ok="\033[32m✓\033[0m"
+  local p_fail="\033[31m✗\033[0m"
+  local p_warn="\033[33m!\033[0m"
+
+  check_ok()   { ok_count=$((ok_count+1)); printf "  $p_ok %s\n" "$*"; }
+  check_warn() { warns=$((warns+1));       printf "  $p_warn %s\n" "$*"; }
+  check_fail() { fails=$((fails+1));       printf "  $p_fail %s\n" "$*"; }
+
+  echo "Night Shift Agent — doctor"
+  echo ""
+
+  echo "## Binaries"
+  for bin in claude jq git gh; do
+    if command -v "$bin" >/dev/null 2>&1; then check_ok  "$bin: $(command -v $bin)"
+    else                                       check_fail "$bin: missing"; fi
+  done
+{{#if resilience_caffeinate}}
+  if command -v caffeinate >/dev/null 2>&1; then check_ok "caffeinate"
+  else                                            check_warn "caffeinate missing — sleep prevention disabled"; fi
+{{/if}}
+
+  echo ""
+  echo "## Install integrity"
+  for f in prompt.md run.sh settings.json triage.sh; do
+    if [[ -f "$ROUTINE_DIR/$f" ]]; then check_ok "$f present"
+    else                                check_fail "$f missing in $ROUTINE_DIR"; fi
+  done
+  if [[ -x "$ROUTINE_DIR/run.sh" ]]; then check_ok "run.sh executable"
+  else                                     check_fail "run.sh not executable (chmod +x)"; fi
+
+  echo ""
+  echo "## Schedule"
+{{#if has_specific_days}}
+  local plist="$HOME/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist"
+  if [[ -f "$plist" ]]; then
+    check_ok "launchd plist installed at $plist"
+    if launchctl list 2>/dev/null | grep -q 'com.{{ user_short }}.night-shift-routine'; then
+      check_ok "launchd job is loaded"
+    else
+      check_warn "launchd plist exists but isn't loaded (launchctl bootstrap gui/\$(id -u) \"$plist\")"
+    fi
+  else
+    check_fail "launchd plist missing — re-run wizard or copy template"
+  fi
+{{else}}
+  check_ok "execution_mode={{ execution_mode }} — no launchd schedule expected"
+{{/if}}
+
+  echo ""
+  echo "## claude CLI auth"
+  if claude --version >/dev/null 2>&1; then
+    check_ok "claude responds ($(claude --version 2>&1 | head -1))"
+  else
+    check_fail "claude --version failed — re-login needed"
+  fi
+
+  echo ""
+  echo "## MCP connectivity"
+  if claude mcp list 2>/dev/null | grep -q '✓ Connected'; then
+    local connected needs_auth
+    connected=$(claude mcp list 2>/dev/null | grep -c '✓ Connected')
+    needs_auth=$(claude mcp list 2>/dev/null | grep -c 'Needs authentication')
+    check_ok "$connected MCP(s) connected"
+    [[ $needs_auth -gt 0 ]] && check_warn "$needs_auth MCP(s) need re-authentication"
+  else
+    check_warn "no MCPs report Connected — check 'claude mcp list'"
+  fi
+
+  echo ""
+  echo "## Recent runs"
+  local last_log
+  last_log=$(ls -t "$RUNS_DIR"/*.log 2>/dev/null | head -1)
+  if [[ -n "$last_log" ]]; then
+    local age_h
+    age_h=$(( ( $(date +%s) - $(stat -f %m "$last_log") ) / 3600 ))
+    if [[ $age_h -lt 26 ]]; then check_ok  "last run: $(basename "$last_log") (${age_h}h ago)"
+    elif [[ $age_h -lt 72 ]]; then check_warn "last run is ${age_h}h ago — schedule may not be firing"
+    else                           check_fail "last run is ${age_h}h ago — agent appears stalled"; fi
+  else
+    check_warn "no runs yet in $RUNS_DIR — first scheduled run hasn't fired"
+  fi
+
+  echo ""
+  echo "## Disk"
+  local install_kb install_mb
+  install_kb=$(du -sk "$ROUTINE_DIR" 2>/dev/null | awk '{print $1}')
+  install_mb=$(( install_kb / 1024 ))
+  if [[ $install_mb -lt 500 ]]; then check_ok "install dir: ${install_mb}M"
+  elif [[ $install_mb -lt 2000 ]]; then check_warn "install dir: ${install_mb}M (consider pruning runs/ + patches/)"
+  else check_fail "install dir: ${install_mb}M — runs/ + patches/ + checkpoints/ likely need cleanup"; fi
+
+  local snap_count
+  snap_count=$(find "$ROUTINE_DIR/checkpoints" -maxdepth 1 -name 'snap-*' -type d 2>/dev/null | wc -l | tr -d ' ')
+  if [[ $snap_count -gt 30 ]]; then check_warn "$snap_count snapshots in checkpoints/ (auto-prune keeps 14d)"
+  else check_ok "$snap_count snapshots in checkpoints/"; fi
+
+  echo ""
+  echo "----"
+  if [[ $fails -eq 0 && $warns -eq 0 ]]; then
+    printf "\033[32m✓ All clear: $ok_count checks pass.\033[0m\n"
+    return 0
+  elif [[ $fails -eq 0 ]]; then
+    printf "\033[33m! $ok_count OK, $warns warning(s).\033[0m\n"
+    return 0
+  else
+    printf "\033[31m✗ $ok_count OK, $warns warning(s), $fails failure(s).\033[0m\n"
+    return 1
+  fi
+}
+
 # Main dispatch
 case "${1:-}" in
   apply)   shift; cmd_apply "$@" ;;
@@ -125,6 +240,7 @@ case "${1:-}" in
   logs)    shift; cmd_logs "$@" ;;
   triage)  shift; cmd_triage "$@" ;;
   restore) shift; cmd_restore "$@" ;;
+  doctor)  shift; cmd_doctor "$@" ;;
   help|--help|-h|"") usage ;;
   *)
     echo "Unknown subcommand: $1" >&2

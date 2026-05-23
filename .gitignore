@@ -17,3 +17,6 @@ output/
 dry-runs/
 .scratch/
 NOTES.local.md
+
+# Test artifacts (deleted on success, present only on diff)
+tests/.actual-*

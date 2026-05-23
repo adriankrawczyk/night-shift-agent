@@ -45,33 +45,53 @@ If any file is missing, stop and tell the user to re-clone or update the install
 ### 2. Initialize scan storage (with resume detection)
 
 ```bash
-WIZARD_DIR="/tmp/night-shift-wizard"
+# State lives in ~/.config/, NOT /tmp/ — /tmp wipes on Mac reboot.
+WIZARD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/night-shift-agent/wizard-state"
 mkdir -p "$WIZARD_DIR"
 SCAN_JSON="$WIZARD_DIR/scan.json"
 ANSWERS_JSON="$WIZARD_DIR/answers.json"
-STATE_FILE="$WIZARD_DIR/state.txt"     # tracks last completed phase
+STATE_FILE="$WIZARD_DIR/state.json"     # {schema_version, last_phase, started_at, installer_version}
+
+SCHEMA_VERSION=1
 
 # Resume detection — if user re-runs the wizard mid-flow, offer to resume
 if [ -s "$ANSWERS_JSON" ] && jq -e '.q0_0' "$ANSWERS_JSON" >/dev/null 2>&1; then
-  LAST_PHASE=$(cat "$STATE_FILE" 2>/dev/null || echo "?")
-  TIER=$(jq -r '.q0_0 // "?"' "$ANSWERS_JSON")
-  echo "Found in-progress wizard state: tier=$TIER, last completed phase=$LAST_PHASE"
-  # Ask user: resume from $LAST_PHASE, start over, or inspect/edit answers
-  # via AskUserQuestion with 3 options.
-  # On "start over" → wipe both files and proceed fresh.
-  # On "resume" → continue from PHASE $((LAST_PHASE+1)).
-  # On "inspect" → show jq pretty-print of answers, then ask again.
+  PRIOR_SCHEMA=$(jq -r '.schema_version // 0' "$STATE_FILE" 2>/dev/null)
+  if [ "$PRIOR_SCHEMA" != "$SCHEMA_VERSION" ]; then
+    # Schema mismatch — old in-progress state from a different installer version
+    echo "Found in-progress state from incompatible installer version (schema $PRIOR_SCHEMA, current $SCHEMA_VERSION)."
+    # AskUserQuestion: "Discard the old state and start fresh?" — only safe option.
+    # On confirm: wipe + start fresh.
+  else
+    LAST_PHASE=$(jq -r '.last_phase // 0' "$STATE_FILE" 2>/dev/null)
+    TIER=$(jq -r '.q0_0 // "?"' "$ANSWERS_JSON")
+    STARTED=$(jq -r '.started_at // "?"' "$STATE_FILE" 2>/dev/null)
+    echo "Found in-progress wizard state: tier=$TIER, last completed phase=$LAST_PHASE (started $STARTED)"
+    # Ask user via AskUserQuestion:
+    #   A) Resume from phase $((LAST_PHASE+1))
+    #   B) Start over (wipe state)
+    #   C) Show me what was answered so far
+    # On A → jump to that phase.
+    # On B → wipe both files + state, write fresh state with schema_version + installer_version.
+    # On C → jq -r 'to_entries[] | "\(.key): \(.value)"' "$ANSWERS_JSON" | head -40 — then re-ask A/B.
+  fi
 else
+  # Fresh start
   echo '{}' > "$SCAN_JSON"
   echo '{}' > "$ANSWERS_JSON"
-  echo "0" > "$STATE_FILE"
+  jq -n --argjson sv "$SCHEMA_VERSION" --arg ts "$(date -u +%FT%TZ)" --arg iv "$(cat "$INSTALLER_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')" \
+    '{schema_version: $sv, last_phase: 0, started_at: $ts, installer_version: $iv}' > "$STATE_FILE"
 fi
-echo "Scratch dir: $WIZARD_DIR"
+echo "State dir: $WIZARD_DIR"
 ```
 
-These three files are the wizard's working memory across phases AND across separate wizard invocations. After every scan: write findings to `$SCAN_JSON`. After every user answer: write to `$ANSWERS_JSON`. After every phase completes: bump `$STATE_FILE` to the new phase number.
+The wizard's working memory survives reboots (state is in `~/.config/night-shift-agent/wizard-state/`, not `/tmp/`).
 
-The user can kill the wizard at any time (Ctrl-C, close terminal, computer sleep) and re-run `bash install.sh` — the wizard detects the in-progress state and offers to resume.
+After every scan: write findings to `$SCAN_JSON`. After every user answer: write to `$ANSWERS_JSON`. After every phase completes: `jq` update `$STATE_FILE.last_phase = <new>`.
+
+The user can kill the wizard at any time (Ctrl-C, close terminal, reboot, power loss) and re-run `bash install.sh` — the wizard detects the in-progress state and offers to resume.
+
+**Schema version**: if `SCHEMA_VERSION` bumps in a future installer release, old in-progress state is rejected (asks user to discard) — avoids running incompatible answer structures through a newer wizard.
 
 ### 2.5. Capture system context (used by templates)
 
@@ -950,6 +970,15 @@ Plus:
   - Encrypted secrets at ~/.config/night-shift-agent/secrets.json
 
 Total: <N> files.
+
+Cost estimate:
+  - Schedule: {{ schedule_human_readable }}, hard wall {{ hard_wall_minutes }} min
+  - Token usage per night: rough order of magnitude
+      * Minimal (60-min wall, no meta-agent, no daily-meta): ~50-200k output tokens
+      * Balanced (180-min wall, meta-agent draft_only): ~200-500k output tokens
+      * Full (300-min wall + meta-agent + daily-meta): ~400k-1M output tokens
+  - Billed to your Claude plan (Pro/Max absorbs it; raw API ~$3-15/day at Sonnet pricing).
+  - You can reduce cost later by lowering hard_wall_minutes or disabling meta-agent.
 ```
 
 Ask: change anything?
