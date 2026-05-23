@@ -51,6 +51,12 @@ find_patch() {
 }
 
 cmd_apply() {
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: night-shift apply <patch-id> [--force]" >&2
+    echo "  <patch-id>: partial id match (e.g. 'pr-123' or just '123')" >&2
+    echo "  --force:    apply even if working tree is dirty" >&2
+    return 2
+  fi
   local id="$1"
   local force=0
   [[ "${2:-}" == "--force" ]] && force=1
