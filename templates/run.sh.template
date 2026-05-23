@@ -142,6 +142,95 @@ date -u +%FT%TZ > "$RUNTIME_DIR/started.txt"
 log_both "Snapshotting user repo state"
 {{ pattern.P10 }}
 ub_snapshot "pre-run-${RUN_TS}"
+
+# === WORKTREE SETUP — isolated checkout so agent never touches USER_REPO ===
+# Snapshot above is the rollback safety net; this is the prevention. Agent operates
+# in a detached worktree at $WORKTREE; USER_REPO stays untouched (and matches the
+# baseline snapshot above) except for the protect-user-state.sh apply/restore window.
+WORKTREE_PARENT="$ROUTINE_DIR/worktree"
+WORKTREE="$WORKTREE_PARENT/$(basename "$USER_REPO")"
+export NIGHT_SHIFT_AGENT_WORKTREE="$WORKTREE"
+
+# Prune BEFORE creating to clear half-removed prior worktrees that would block naming.
+git -C "$USER_REPO" worktree prune 2>>"$LOG" || true
+mkdir -p "$WORKTREE_PARENT"
+
+if [[ ! -e "$WORKTREE/.git" ]]; then
+  # If the directory exists as a non-worktree husk (rm .git happened), wipe it
+  # first — `git worktree add` aborts on "<path> already exists" otherwise.
+  if [[ -d "$WORKTREE" ]]; then
+    log_both "Removing stale non-git worktree husk at $WORKTREE"
+    emit_json warn worktree_husk_removed path="$WORKTREE"
+    rm -rf "$WORKTREE"
+  fi
+  log_both "Creating fresh worktree at $WORKTREE"
+  emit_json info worktree_create path="$WORKTREE"
+  git -C "$USER_REPO" fetch origin --quiet 2>>"$LOG" || true
+  DEFAULT_BRANCH="$(git -C "$USER_REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)"
+  if ! git -C "$USER_REPO" worktree add --detach "$WORKTREE" "origin/$DEFAULT_BRANCH" 2>>"$LOG"; then
+    log_both "ERROR: worktree add failed"
+    emit_json error worktree_add_failed
+    exit 1
+  fi
+else
+  # Reset worktree to clean state so prior crashed-run state doesn't leak forward.
+  git -C "$WORKTREE" reset --hard --quiet 2>>"$LOG" || true
+  git -C "$WORKTREE" clean -fdx --quiet 2>>"$LOG" || true
+fi
+{{/if}}
+
+{{#if (eq ui_automation_tool "argent")}}
+# === ARGENT PROBE — side-channel ground truth ===
+# Past incident: agent rationalized argent-skip with "MCP tools didn't load this
+# session" while a same-flags claude --print repro proved all argent tools were
+# present. Introspection lies. Probe the CLI ourselves and pass a deterministic
+# flag the agent must respect. Post-run, grep JSONL for the resulting probe event
+# to detect false-skip drift.
+if argent --version >/dev/null 2>&1; then
+  export NIGHT_SHIFT_ARGENT_AVAILABLE=1
+  emit_json info argent_probe ok=true version="$(argent --version 2>/dev/null | head -1)"
+else
+  export NIGHT_SHIFT_ARGENT_AVAILABLE=0
+  emit_json warn argent_probe ok=false reason="argent --version failed or CLI not on PATH"
+fi
+
+# === MOBILE PREFLIGHT — boot iOS sim + start Metro for UI patches ===
+# Without this, the agent burns budget per-patch on sim/Metro startup. We preempt
+# both here so the agent inherits a working baseline. Failures non-fatal — agent
+# decides whether to skip live-repro based on the JSONL events.
+mobile_preflight() {
+  # iOS sim — boot one if none running
+  if ! command -v xcrun >/dev/null 2>&1; then
+    emit_json warn mobile_preflight_no_xcrun
+    return 0
+  fi
+  local booted
+  booted="$(xcrun simctl list devices booted 2>/dev/null | grep -c 'iPhone' || true)"
+  booted="${booted//[^0-9]/}"
+  booted="${booted:-0}"
+  if (( booted == 0 )); then
+    local sim_id
+    sim_id="$(xcrun simctl list devices available 2>/dev/null | grep -m1 'iPhone' | grep -oE '\([0-9A-F-]{36}\)' | tr -d '()')"
+    if [[ -n "$sim_id" ]]; then
+      log_both "Booting iOS simulator $sim_id"
+      xcrun simctl boot "$sim_id" 2>>"$LOG" || true
+      emit_json info mobile_preflight_sim_booted id="$sim_id"
+    fi
+  else
+    emit_json info mobile_preflight_sim_already_booted count="$booted"
+  fi
+
+  # Metro — start if not already on 8081 (assumes project uses default Metro port)
+  if ! lsof -i :8081 -sTCP:LISTEN >/dev/null 2>&1; then
+    log_both "Starting Metro bundler (project: $USER_REPO)"
+    # Spawn detached, log to its own file. Agent may stop/restart as needed.
+    (cd "$USER_REPO" && (npx expo start --no-dev --minify >"$RUNTIME_DIR/metro.log" 2>&1 &) &)
+    emit_json info mobile_preflight_metro_starting log="$RUNTIME_DIR/metro.log"
+  else
+    emit_json info mobile_preflight_metro_already_up
+  fi
+}
+mobile_preflight || true
 {{/if}}
 
 # === Set DRY_RUN env for agent ===
