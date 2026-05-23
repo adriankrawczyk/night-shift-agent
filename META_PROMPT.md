@@ -269,6 +269,7 @@ MAX_RESUME_ATTEMPTS=3                          # constant — three sub-runs wit
 | `project_uses_react_compiler` | scan for `babel-plugin-react-compiler` or `experimental: {reactCompiler: true}` in `next.config.*`/`babel.config.*` | bool (per-project — for prompt.md template, use the primary project at index 0) |
 | `gh_repo_full` | `"${gh_user_login}/${gh_repo.name}"` where `gh_user_login` is captured at Phase 0's GitHub scan step (`gh api user --jq .login`) and persisted as `$SCAN_JSON.gh_user_login`. Empty string if `gh_repo.create == false`. |
 | `email_subject_prefix` | `$ANSWERS_JSON.output_channels_detail.email.subject_prefix`, default `<primary-project-name>` | string |
+| `coord_gist_id` | Only meaningful when `multi_machine == true`. Created at Phase 7 alongside the dual-write coord setup (`gh gist create` returns the id). Persist as `$ANSWERS_JSON.coord_gist_id`. Empty string when single-machine. Used by the prompt's STEP 0 — Coordination block to read/write current run status. |
 
 ### Group E — Display strings (computed for the prompt body)
 
