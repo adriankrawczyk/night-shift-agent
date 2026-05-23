@@ -145,6 +145,56 @@ if [[ "$AUTO_MERGE" == "1" ]] && [[ "$DECISION_CLASS" == "tactical" ]]; then
     emit_log "Auto-merged tactical PR"
 fi
 
+# === Notify user about architectural PRs (need their review) ===
+# Tactical PRs auto-merge silently. Architectural PRs are draft + need a human
+# decision — surface them via terminal-notifier (silent fallback to osascript).
+if [[ "$DECISION_CLASS" != "tactical" ]] && [[ -n "$PR_URL" ]]; then
+  PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+  NOTIFY_TITLE="Meta-agent: ${DECISION_CLASS} PR pending"
+  NOTIFY_SUB="PR #${PR_NUMBER} — review when free"
+  NOTIFY_MSG="${SUMMARY:0:120}"
+  if command -v terminal-notifier >/dev/null 2>&1; then
+    terminal-notifier -title "$NOTIFY_TITLE" -subtitle "$NOTIFY_SUB" -message "$NOTIFY_MSG" -open "$PR_URL" -sound Submarine 2>/dev/null || true
+  else
+    osascript -e "display notification \"$NOTIFY_MSG\" with title \"$NOTIFY_TITLE\" subtitle \"$NOTIFY_SUB\" sound name \"Submarine\"" 2>/dev/null || true
+  fi
+  # Sentinel for the next run — the prompt's STEP 0 can check this and avoid
+  # proposing the same architectural change twice while it's still pending.
+  SENTINEL_DIR="$ROUTINE_DIR/runs"
+  mkdir -p "$SENTINEL_DIR"
+  printf '{"pr":%s,"class":"%s","opened_at_utc":"%s","status":"pending_review"}\n' \
+    "$PR_NUMBER" "$DECISION_CLASS" "$(date -u +%FT%TZ)" \
+    > "$SENTINEL_DIR/architectural-pending-${TODAY_LOCAL}.json"
+  emit_log "Architectural sentinel: $SENTINEL_DIR/architectural-pending-${TODAY_LOCAL}.json"
+fi
+
+# === Append to META-DECISIONS.md ledger (shared, append-only) ===
+# Records every meta-agent PR + verdict. The prompt reads this on next run to
+# avoid re-proposing reverted changes (do_not_touch field, manually settable).
+META_DECISIONS_FILE="$ROUTINE_DIR/META-DECISIONS.md"
+if [[ -f "$META_DECISIONS_FILE" ]] && [[ -n "$PR_URL" ]]; then
+  PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+  {
+    echo ""
+    echo "- pr: $PR_NUMBER"
+    echo "  date_local: $TODAY_LOCAL"
+    echo "  class: $DECISION_CLASS"
+    echo "  auto_merged: $([[ "$AUTO_MERGE" == "1" && "$DECISION_CLASS" == "tactical" ]] && echo true || echo false)"
+    echo "  pr_url: $PR_URL"
+    echo "  summary: |"
+    echo "    ${SUMMARY:-(no summary)}"
+    echo "  user_reverted: false"
+    echo "  user_modified: false"
+    echo "  do_not_touch: false"
+  } >> "$META_DECISIONS_FILE"
+  # Commit the ledger update straight to main (metadata-only, low-risk).
+  if [[ -n "$(git -C "$ROUTINE_DIR" status --porcelain META-DECISIONS.md 2>/dev/null)" ]]; then
+    git -C "$ROUTINE_DIR" add META-DECISIONS.md 2>>"$META_LOG"
+    git -C "$ROUTINE_DIR" commit -m "meta-decisions: record PR #${PR_NUMBER}" --no-verify 2>>"$META_LOG" || true
+    git -C "$ROUTINE_DIR" push --quiet 2>>"$META_LOG" || emit_log "WARN: META-DECISIONS push failed (non-fatal)"
+  fi
+fi
+
 # === Restore stashed changes if any ===
 if git -C "$ROUTINE_DIR" stash list | grep -q "meta-agent-pre-run"; then
   git -C "$ROUTINE_DIR" checkout --quiet main 2>>"$META_LOG"
