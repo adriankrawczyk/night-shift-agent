@@ -4,14 +4,48 @@ Files in this directory are rendered by the wizard at install time. Variables co
 
 ## Template syntax
 
+Basic:
 ```
 {{ key }}                              — interpolate scalar value
 {{ deeply.nested.key }}                — interpolate nested
 {{#if condition }}...{{/if}}           — conditional block
+{{#if condition }}...{{else}}...{{/if}} — conditional with else
 {{#unless condition }}...{{/unless}}   — inverse conditional
 {{#each list }}...{{/each}}            — iterate list (use {{ this }} or {{ this.field }} inside)
-{{ pattern.P1 }}                       — render bash pattern from BASH_PATTERNS.md
+{{ @index }}                           — current index inside {{#each}} (0-based)
+{{ ../foo }}                           — climb one frame up inside nested {{#each}}
+{{ pattern.P1 }}                       — render bash pattern from BASH_PATTERNS.md (P1..P18)
 ```
+
+Extended (used by current templates; render engine MUST support):
+```
+{{#if (eq this "markdown") }}          — subexpression: eq compares scalar literals
+{{#if (eq ui_automation_tool "argent")}}  — same, applied to a non-`this` var
+
+{{ X * 0.6 | round }}                  — inline arithmetic + filter (round/floor/ceil)
+                                          Implementation: evaluate expression, apply filter at render time.
+                                          Used only by prompt.md.template for LEAN_MODE threshold.
+
+{{> (lookup recipe_gather_steps this) }}  — partial inclusion via map lookup
+                                          Resolve: read recipe_gather_steps[this], read that file path
+                                          relative to $INSTALLER_DIR, render it with the current render-context,
+                                          inline result at this location.
+
+{{#if recipe_includes "bug_triager"}}  — helper: `recipe_includes` evaluates `"bug_triager" ∈ recipes`
+                                          Other helpers used:
+                                          - `eq A B` → A == B as strings
+                                          - `recipe_includes "id"` → id ∈ recipes array
+```
+
+When rendering a template the engine MUST:
+1. Resolve every `{{ x }}` to a value (string, number, bool, or array)
+2. Evaluate boolean blocks (`{{#if}}` etc.) and skip/include their bodies accordingly
+3. Iterate `{{#each list}}` bodies — push `this`, `@index`, and parent context for `../`
+4. Recursively render partials inlined via `{{> name }}`
+5. Apply inline filters (`| round`) after expression evaluation
+6. Treat unresolved variables as render errors — do not silently emit `{{ ... }}` literally to the output
+
+See `../META_PROMPT.md` § "VARIABLES SCHEMA" for the complete contract of which variables every template references and where they come from.
 
 ## Files
 

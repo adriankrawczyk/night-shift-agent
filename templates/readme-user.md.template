@@ -1,7 +1,7 @@
 # Your Night Shift Agent
 
 > Installed: {{ generated_at }}
-> Version: night-shift-agent v0.1
+> Version: night-shift-agent v{{ installer_version }} ({{ installer_commit }})
 > Tier: {{ tier }}
 > Mode: {{ execution_mode }}
 
@@ -115,7 +115,7 @@ Check that the launchd plist + caffeinate are both working. The agent should hav
 
 ## Learn more
 
-- Installer source: https://github.com/<your-handle>/night-shift-agent
+- Installer source: https://github.com/adriankrawczyk/night-shift-agent
 - Patterns library: `~/.night-shift-installer/BASH_PATTERNS.md`
 - Recipe authoring: `~/.night-shift-installer/recipes/README.md`
 
