@@ -44,6 +44,11 @@ filter_untracked_by_size() {
 }
 
 cmd_begin() {
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: protect-user-state.sh begin <label>" >&2
+    echo "  <label>: short identifier for this checkpoint (e.g. bug-id, pr-number)" >&2
+    return 2
+  fi
   local id="$1"
   local dir
   dir="$CHECKPOINTS_DIR/begin-$id-$(date -u +%FT%H%M%S)"
@@ -78,6 +83,11 @@ EOF
 }
 
 cmd_restore() {
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: protect-user-state.sh restore <checkpoint-id>" >&2
+    echo "  <checkpoint-id>: the id from a prior 'begin' call (or 'latest' for most recent)" >&2
+    return 2
+  fi
   local id="$1"
   local dir
   dir=$(ls -td "$CHECKPOINTS_DIR/begin-${id}-"* 2>/dev/null | head -1)
