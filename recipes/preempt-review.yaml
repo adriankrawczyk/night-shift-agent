@@ -20,9 +20,8 @@ default_settings:
   patch_class: proactive
 
 prerequisite:
-  - reviewer_persona must be enabled and have at least one handle configured
-  - If reviewer-style.md doesn't exist or is empty, skip this recipe with a brief
-    note: "preempt-review skipped — no reviewer persona configured"
+  - "reviewer_persona must be enabled and have at least one handle configured"
+  - "If reviewer-style.md doesn't exist or is empty, skip this recipe with a brief note ('preempt-review skipped — no reviewer persona configured')"
 
 gather_steps:
   description: |

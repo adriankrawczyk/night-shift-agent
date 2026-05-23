@@ -16,7 +16,10 @@ You are a runtime-verification subagent for Night Shift Agent. Your job: prove a
 
 1. Verify the patch is applied to the worktree (`git diff` should show it).
 {{#if (eq ui_automation_tool "playwright")}}
-2. Start the dev server: `npm run dev` (or equivalent for the project) — detached.
+2. Start the dev server detached and stash its PID for cleanup:
+   ```bash
+   (npm run dev >/tmp/night-shift-devserver.log 2>&1 &) && echo $! > /tmp/night-shift-devserver.pid
+   ```
 3. Wait for it to be up (poll the configured URL until 200 OK or 30s timeout).
 4. Use `mcp__claude-in-chrome__navigate` or `mcp__playwright__*` to open the affected route.
 5. Use `find` / `read_page` / `javascript_tool` to inspect actual rendered state.
@@ -64,7 +67,16 @@ Use these to log in if the affected flow requires it. Never log the password val
 
 ## Cleanup on exit
 
+{{#if (eq ui_automation_tool "argent")}}
 ```bash
-# Stop simulator-servers / browser processes
+# Stop simulator-servers
 mcp__argent__stop-all-simulator-servers 2>/dev/null || true
 ```
+{{/if}}
+{{#if (eq ui_automation_tool "playwright")}}
+```bash
+# Kill detached dev server (PID stashed in /tmp/night-shift-devserver.pid)
+[ -f /tmp/night-shift-devserver.pid ] && kill "$(cat /tmp/night-shift-devserver.pid)" 2>/dev/null || true
+rm -f /tmp/night-shift-devserver.pid
+```
+{{/if}}

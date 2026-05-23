@@ -64,9 +64,11 @@ ls -t ~/.claude/projects/*/2*.jsonl 2>/dev/null | head -20
 
 ### C. GH activity
 ```bash
-gh pr list --author @me --updated 1d ago
-gh pr list --reviewer @me --updated 1d ago
-gh issue list --assignee @me --updated 1d ago
+# gh doesn't have --updated; use --search with the GitHub search query syntax
+YESTERDAY=$(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d 'yesterday' +%Y-%m-%d)
+gh pr list   --author @me   --search "updated:>=${YESTERDAY}"  --json number,title,updatedAt,url
+gh pr list   --search "reviewer:@me updated:>=${YESTERDAY}"    --json number,title,updatedAt,url
+gh issue list --assignee @me --search "updated:>=${YESTERDAY}" --json number,title,updatedAt,url
 ```
 
 ### D. Linear (if connected)
