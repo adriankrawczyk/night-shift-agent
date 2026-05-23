@@ -95,5 +95,38 @@ cd "$INSTALL_DIR"
 gh repo create "$REPO_NAME" --"$VISIBILITY" --source=. --push
 ```
 
+### Final summary (always, after all of the above)
+
+Print a single concise block — this is the LAST thing the user sees before the wizard exits. Don't bloat it; format as actionable next steps:
+
+```
+✓ Night Shift Agent installed.
+
+Where things are:
+  Install dir: {{ install_dir }}
+  User-facing README: {{ install_dir }}/README.md
+  Generated CLI: {{ install_dir }}/cli/night-shift
+
+First scheduled run: {{ schedule_human_readable }} ({{ first_run_iso }} local).
+{{#if multi_machine}}
+  Note: also configure the cloud half via {{ install_dir }}/coord.md.
+{{/if}}
+
+Try these now:
+  {{ install_dir }}/cli/night-shift doctor         # health-check the install
+  {{ install_dir }}/cli/night-shift run --dry-run  # exercise without shipping artifacts
+  {{ install_dir }}/cli/night-shift logs           # tail latest run log
+
+To edit later:
+  - Questions / scan answers: re-run `bash {{ installer_dir }}/install.sh --update` and pick "B: edit"
+  - Templates / patterns: edit files under {{ installer_dir }}/templates/ then re-run wizard
+  - Schedule: launchctl unload + edit ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist + load
+
+If anything breaks: `{{ install_dir }}/cli/night-shift doctor` first, then check
+{{ install_dir }}/runs/launchd.stdout.log for the most recent failure.
+```
+
+Compute `first_run_iso` from `$ANSWERS_JSON.schedule` — next matching weekday + time after `now()`.
+
 ---
 

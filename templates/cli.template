@@ -10,10 +10,16 @@
 #   night-shift triage              Print triage report (last 7 runs)
 #   night-shift restore [snap-id]   Roll back user repo to last-night snapshot
 #   night-shift doctor              Runtime health check (launchd, claude, MCPs, disk, logs)
+#   night-shift uninstall [--yes]   Unload launchd job + remove plists (keeps install dir)
 #   night-shift help
 
 set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# Stash script path BEFORE any function call — in zsh, $0 inside a function
+# resolves to the function name, not the script path (unless FUNCTION_ARGZERO
+# option is set, which we can't rely on across the user's shell config).
+SCRIPT_PATH="$0"
 
 ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
 {{#each projects}}
@@ -25,7 +31,7 @@ PATCHES_DIR="$ROUTINE_DIR/patches"
 RUNS_DIR="$ROUTINE_DIR/runs"
 
 usage() {
-  sed -n '4,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '4,14p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//'
 }
 
 # Find a patch by partial id match (zsh case-insensitive ${var:l})
@@ -238,15 +244,53 @@ cmd_doctor() {
   fi
 }
 
+cmd_uninstall() {
+  local confirm="${1:-}"
+  if [[ "$confirm" != "--yes" ]]; then
+    cat <<EOF
+This will:
+  1. launchctl bootout the night-shift launchd job(s)
+  2. Remove ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-*.plist
+
+It will NOT delete $ROUTINE_DIR (your install) or $USER_REPO (your project).
+To remove the install dir afterwards, run:
+  rm -rf "$ROUTINE_DIR"
+
+Re-run with --yes to proceed.
+EOF
+    return 0
+  fi
+
+  local plist_dir="$HOME/Library/LaunchAgents"
+  local found=0
+  for plist in "$plist_dir"/com.{{ user_short }}.night-shift-*.plist; do
+    [[ -f "$plist" ]] || continue
+    found=$((found+1))
+    local label
+    label=$(basename "$plist" .plist)
+    echo "Unloading $label …"
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    rm -f "$plist"
+    echo "  ✓ removed $plist"
+  done
+  if (( found == 0 )); then
+    echo "No night-shift launchd plists found at $plist_dir."
+  else
+    echo ""
+    echo "Done. $found plist(s) removed. Install dir kept at $ROUTINE_DIR."
+  fi
+}
+
 # Main dispatch
 case "${1:-}" in
-  apply)   shift; cmd_apply "$@" ;;
-  run)     shift; cmd_run "$@" ;;
-  status)  shift; cmd_status "$@" ;;
-  logs)    shift; cmd_logs "$@" ;;
-  triage)  shift; cmd_triage "$@" ;;
-  restore) shift; cmd_restore "$@" ;;
-  doctor)  shift; cmd_doctor "$@" ;;
+  apply)     shift; cmd_apply "$@" ;;
+  run)       shift; cmd_run "$@" ;;
+  status)    shift; cmd_status "$@" ;;
+  logs)      shift; cmd_logs "$@" ;;
+  triage)    shift; cmd_triage "$@" ;;
+  restore)   shift; cmd_restore "$@" ;;
+  doctor)    shift; cmd_doctor "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
   help|--help|-h|"") usage ;;
   *)
     echo "Unknown subcommand: $1" >&2
