@@ -294,7 +294,7 @@ Before writing any template, assemble the full render-context object in one step
 - `recipe_gather_steps` is built earlier — for each picked recipe, read `recipes/<id>.yaml`, format the gather block (per Group E above), and assemble the map.
 
 ```bash
-RENDER_CTX="/tmp/night-shift-wizard/render-ctx.json"
+RENDER_CTX="$WIZARD_DIR/render-ctx.json"   # same dir as scan.json + answers.json (~/.config/night-shift-agent/wizard-state/)
 
 # Pre-built: $RECIPE_GATHER_STEPS_JSON (file with {"recipe_id": "block", ...})
 jq -n \

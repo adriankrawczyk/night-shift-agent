@@ -236,7 +236,7 @@ questions:
     phase: 3
     type: free-text-loop
     tier_filter: [balanced, full]
-    depends_on: "reviewer_persona.enabled == yes"
+    depends_on: "reviewer_persona.enabled == true"
     text: |
       Who reviews your code most often? Give me their GitHub handle. You can list more than one person.
     validate:
@@ -248,7 +248,7 @@ questions:
     phase: 3
     type: single-select-loop
     tier_filter: [balanced, full]
-    depends_on: "reviewer_persona.enabled == yes AND len(reviewers_with_no_pr_history) > 0"
+    depends_on: "reviewer_persona.enabled == true AND len(reviewers_with_no_pr_history) > 0"
     header_template: "Source for {{ current_handle }}"
     text_template: |
       I couldn't find PR review comments from **{{ current_handle }}** on your code. Where else can I learn their style?
@@ -272,7 +272,7 @@ questions:
     phase: 3
     type: single-select
     tier_filter: [full]
-    depends_on: "reviewer_persona.enabled == yes"
+    depends_on: "reviewer_persona.enabled == true"
     header: "Anonymize"
     text: |
       Should I save their actual name in my files, or use a role label like "Senior Reviewer"?
@@ -596,7 +596,7 @@ questions:
     phase: 8
     type: single-select
     tier_filter: [balanced, full]
-    depends_on: "gh_repo in [private, public]"
+    depends_on: "gh_repo.visibility in [private, public]"
     header: "Self-improvement"
     text: |
       Want me to grade my own runs and propose tweaks to my own setup? (PRs land in my night-shift-agent repo, not your project.)
@@ -693,7 +693,7 @@ questions:
     phase: 10
     type: single-select
     tier_filter: [minimal, balanced, full]
-    depends_on: "phase10_confirm == create AND gh_repo in [private, public]"
+    depends_on: "phase10_confirm == create AND gh_repo.visibility in [private, public]"
     header: "Push to GitHub"
     text: |
       Push my initial setup to your GitHub repo now?
