@@ -35,7 +35,7 @@ bash ~/.night-shift-installer/install.sh --no-launch   # just clone, paste promp
 bash ~/.night-shift-installer/install.sh --update      # pull latest and re-launch
 ```
 
-The wizard takes ~20-30 min for the Full tier (~25 questions for Balanced, ~10 for Minimal). You can kill it at any time and re-run — it detects in-progress state at `/tmp/night-shift-wizard/` and offers to resume.
+The wizard takes ~20-30 min for the Full tier. You can kill it at any time and re-run — it detects in-progress state at `~/.config/night-shift-agent/wizard-state/` and offers to resume.
 
 ## What the wizard asks (10 phases)
 
@@ -53,7 +53,7 @@ The wizard takes ~20-30 min for the Full tier (~25 questions for Balanced, ~10 f
 | 9 | Dashboard | Optional: menu-bar widget showing agent status |
 | 10 | Dry-run + commit | Preview, test fire, push to GitHub |
 
-By tier, total question count: **Minimal ~10**, **Balanced ~25**, **Full ~40**.
+By tier, total question count: **Minimal 15**, **Balanced 29**, **Full 34** (skip-on-default reduces what you actually answer).
 
 ## Platform support
 
@@ -127,13 +127,13 @@ After editing anything in the installer (templates, schema, BASH_PATTERNS), run:
 bash validate.sh
 ```
 
-It checks repo layout, question-ID consistency, bash-pattern extraction, and renders every template against three mock contexts (minimal / balanced / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, and `jq empty` on the rendered output. ~80 assertions; takes <5 seconds. Use in CI or before sharing changes.
+It checks repo layout, question-ID consistency, bash-pattern extraction, wizard-questions schema, recipe-YAML schema, then renders every template against three mock contexts (minimal / balanced / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, `jq empty`, shellcheck, and golden-file regression on security-critical surfaces. 115 assertions; takes <5 seconds. Use in CI or before sharing changes.
 
 ## Credits & lineage
 
-Built on patterns from [adriankrawczyk's `reference-setup`](https://github.com/adriankrawczyk/night-shift-agent) — a working night-shift agent in daily use since 2026.
+Built on patterns extracted from a private working night-shift agent in daily use since early 2026 (single-user, single-repo, hard-coded to one stack — this OSS installer generalizes the same architecture so anyone can wire it to their own project, stack, and tooling).
 
-Reviewer-persona idea + tactical/architectural meta-agent taxonomy + bash gotchas catalog — all from that system, generalized.
+Reviewer-persona idea + tactical/architectural meta-agent taxonomy + bash gotchas catalog — all from that system, generalized. See [`DESIGN.md`](DESIGN.md) for the architectural lineage.
 
 ## License
 

@@ -25,4 +25,4 @@ find ~ -maxdepth 3 -name META_PROMPT.md 2>/dev/null
 
 **"claude not found"** — install Claude Code: https://docs.claude.com/en/docs/claude-code/quickstart
 
-**Wizard exited mid-flow** — re-paste the same prompt. The wizard detects in-progress state at `/tmp/night-shift-wizard/` and offers resume.
+**Wizard exited mid-flow** — re-paste the same prompt. The wizard detects in-progress state at `~/.config/night-shift-agent/wizard-state/` and offers resume.
