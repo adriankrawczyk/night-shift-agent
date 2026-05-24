@@ -103,7 +103,7 @@ night-shift-agent/                   ← installer (this repo)
 ├── prompt.md                        ← agent brain (your personalized version)
 ├── run.sh                           ← wrapper script (with 18 bash patterns inlined)
 ├── settings.json                    ← permissions + deny list
-├── subagents/                       ← coder/reviewer/tester/triager (per your tier)
+├── .claude/agents/                  ← coder/reviewer/tester/triager/convention-checker (per your config)
 ├── recipes/                         ← copies of the recipes you picked
 ├── reviewer-style.md                ← (if persona enabled) generated from real PR scans
 ├── meta-prompt.md                   ← (if meta-agent enabled) self-improvement loop

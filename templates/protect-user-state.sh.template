@@ -22,9 +22,23 @@ USER_REPO_{{ @index }}="${NIGHT_SHIFT_PROJECT_{{ @index }}:-{{ this.path }}}"
 {{/each}}
 USER_REPO="${USER_REPO_0}"
 
+# Ordered list of all configured projects. Single-project users get just one
+# entry → every "for_each_project" loop iterates once → behaves exactly as the
+# pre-v0.1 single-project script.
+ALL_USER_REPOS=({{#each projects}}"$USER_REPO_{{ @index }}" {{/each}})
+
 CHECKPOINTS_DIR="$ROUTINE_DIR/checkpoints"
 ACTIVE_MARKER="$CHECKPOINTS_DIR/.active"
 mkdir -p "$CHECKPOINTS_DIR"
+
+# Per-project subdir naming: `p0/`, `p1/`, …. Files inside are the same
+# layout as the single-project case (orig_head.txt, orig_ref.txt, diff.patch,
+# untracked.txt, status_hash.txt). Restore/rollback iterate p<N> dirs in
+# numeric order so primary always restores first (failures on secondary
+# don't block primary recovery).
+project_subdir_name() {
+  printf 'p%s' "$1"
+}
 
 filter_untracked_by_size() {
   local list="$1" filtered="$1.filtered" excluded="$1.excluded"
@@ -130,20 +144,67 @@ cmd_restore() {
   echo "restored from $dir"
 }
 
+# Snapshot ONE project to a $dir/p<N>/ subdir. Used by cmd_snapshot per project.
+_snapshot_one_project() {
+  local idx="$1" repo="$2" parent_dir="$3"
+  local pdir
+  pdir="$parent_dir/$(project_subdir_name "$idx")"
+  mkdir -p "$pdir"
+
+  if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "non-git" > "$pdir/skip.txt"
+    return 0
+  fi
+
+  local cur_head cur_ref cur_status_hash
+  cur_head=$(git -C "$repo" rev-parse HEAD 2>/dev/null)
+  cur_ref=$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || echo "DETACHED")
+  cur_status_hash=$(git -C "$repo" status --porcelain | shasum | cut -d' ' -f1)
+
+  echo "$cur_head" > "$pdir/orig_head.txt"
+  echo "$cur_ref" > "$pdir/orig_ref.txt"
+  echo "$cur_status_hash" > "$pdir/status_hash.txt"
+  echo "$repo" > "$pdir/repo_path.txt"
+  git -C "$repo" status --porcelain > "$pdir/status.txt"
+  git -C "$repo" diff HEAD > "$pdir/diff.patch" 2>/dev/null
+  git -C "$repo" ls-files --others --exclude-standard > "$pdir/untracked.txt"
+
+  # Size-filter using $repo-local paths (the global filter_untracked_by_size
+  # is USER_REPO-bound; rebuild minimal logic here)
+  local filtered="$pdir/untracked.txt.filtered"
+  local excluded="$pdir/untracked.txt.excluded"
+  : > "$filtered"; : > "$excluded"
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    local full="$repo/$rel"
+    [[ ! -f "$full" ]] && continue
+    local sz; sz=$(stat -f %z "$full" 2>/dev/null || echo 0)
+    if (( sz > 10485760 )); then
+      printf '%s\t%s bytes\n' "$rel" "$sz" >> "$excluded"
+    else
+      printf '%s\n' "$rel" >> "$filtered"
+    fi
+  done < "$pdir/untracked.txt"
+}
+
 cmd_snapshot() {
   local label="${1:-baseline}"
-  local cur_head; cur_head=$(git -C "$USER_REPO" rev-parse HEAD 2>/dev/null)
-  local cur_ref; cur_ref=$(git -C "$USER_REPO" symbolic-ref --short HEAD 2>/dev/null || echo "DETACHED")
-  local cur_status_hash; cur_status_hash=$(git -C "$USER_REPO" status --porcelain | shasum | cut -d' ' -f1)
 
-  # Dedup: if recent identical snapshot exists, reuse
+  # Dedup against most-recent snapshot. Only checks PRIMARY project's hash
+  # (the common single-project case stays fast; multi-project edge eats one
+  # extra dir on a no-change rerun — acceptable for v0.1).
+  local cur_head cur_ref cur_status_hash
+  cur_head=$(git -C "$USER_REPO" rev-parse HEAD 2>/dev/null)
+  cur_ref=$(git -C "$USER_REPO" symbolic-ref --short HEAD 2>/dev/null || echo "DETACHED")
+  cur_status_hash=$(git -C "$USER_REPO" status --porcelain | shasum | cut -d' ' -f1)
+
   local recent_dir
   recent_dir=$(ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -1)
-  if [[ -n "$recent_dir" && -f "$recent_dir/orig_head.txt" ]]; then
+  if [[ -n "$recent_dir" && -f "$recent_dir/p0/orig_head.txt" ]]; then
     local r_head r_ref r_status_hash
-    r_head=$(cat "$recent_dir/orig_head.txt")
-    r_ref=$(cat "$recent_dir/orig_ref.txt")
-    r_status_hash=$(cat "$recent_dir/status_hash.txt" 2>/dev/null)
+    r_head=$(cat "$recent_dir/p0/orig_head.txt")
+    r_ref=$(cat "$recent_dir/p0/orig_ref.txt")
+    r_status_hash=$(cat "$recent_dir/p0/status_hash.txt" 2>/dev/null)
     local r_ts; r_ts=$(stat -f %m "$recent_dir" 2>/dev/null || echo 0)
     local age=$(( $(date +%s) - r_ts ))
     if [[ "$r_head" == "$cur_head" && "$r_ref" == "$cur_ref" && "$r_status_hash" == "$cur_status_hash" ]] && (( age < 1800 )); then
@@ -155,17 +216,51 @@ cmd_snapshot() {
   local dir
   dir="$CHECKPOINTS_DIR/snap-${label}-$(date -u +%FT%H%M%S)"
   mkdir -p "$dir"
-  echo "$cur_head" > "$dir/orig_head.txt"
-  echo "$cur_ref" > "$dir/orig_ref.txt"
-  echo "$cur_status_hash" > "$dir/status_hash.txt"
-  git -C "$USER_REPO" status --porcelain > "$dir/status.txt"
 
-  # Capture diff vs HEAD + untracked file list (size-filtered)
-  git -C "$USER_REPO" diff HEAD > "$dir/diff.patch" 2>/dev/null
-  git -C "$USER_REPO" ls-files --others --exclude-standard > "$dir/untracked.txt"
-  filter_untracked_by_size "$dir/untracked.txt"
+  # Snapshot every configured USER_REPO_N independently. Primary failure
+  # aborts (single-project users get same exit codes as before); secondary
+  # failures log + continue (their rollback won't work but primary's will).
+  local idx=0
+  for repo in "${ALL_USER_REPOS[@]}"; do
+    if ! _snapshot_one_project "$idx" "$repo" "$dir"; then
+      if [[ "$idx" == "0" ]]; then
+        echo "FATAL: primary project snapshot failed" >&2
+        return 1
+      fi
+      echo "WARN: snapshot for project[$idx] ($repo) failed — continuing" >&2
+    fi
+    idx=$((idx + 1))
+  done
 
   echo "snap-id=$(basename "$dir")"
+}
+
+# Roll back ONE project from a $dir/p<N>/ subdir. Returns 0 on success,
+# non-zero on hard failure (caller decides whether to abort the run).
+_rollback_one_project() {
+  local pdir="$1" idx="$2"
+  [[ -f "$pdir/skip.txt" ]] && { echo "  p$idx: skipped (non-git)"; return 0; }
+  [[ ! -f "$pdir/orig_head.txt" ]] && { echo "  p$idx: missing snapshot data" >&2; return 1; }
+
+  local repo orig_head orig_ref
+  repo=$(cat "$pdir/repo_path.txt" 2>/dev/null)
+  [[ -z "$repo" || ! -d "$repo" ]] && { echo "  p$idx: repo path not readable" >&2; return 1; }
+  orig_head=$(cat "$pdir/orig_head.txt")
+  orig_ref=$(cat "$pdir/orig_ref.txt")
+
+  if [[ "$orig_ref" != "DETACHED" ]]; then
+    git -C "$repo" checkout --quiet "$orig_ref" 2>/dev/null || \
+      git -C "$repo" checkout --detach --quiet "$orig_head" 2>/dev/null || return 1
+  else
+    git -C "$repo" checkout --detach --quiet "$orig_head" 2>/dev/null || return 1
+  fi
+  git -C "$repo" reset --hard --quiet "$orig_head" 2>/dev/null || return 1
+
+  if [[ -s "$pdir/diff.patch" ]]; then
+    git -C "$repo" apply "$pdir/diff.patch" 2>/dev/null || \
+      echo "  p$idx: WARN diff.patch did not re-apply cleanly"
+  fi
+  echo "  p$idx: rolled back ($repo)"
 }
 
 cmd_rollback() {
@@ -180,25 +275,39 @@ cmd_rollback() {
     echo "No snapshot found" >&2
     return 1
   fi
-  local orig_head; orig_head=$(cat "$dir/orig_head.txt")
-  local orig_ref; orig_ref=$(cat "$dir/orig_ref.txt")
 
-  if [[ "$orig_ref" != "DETACHED" ]]; then
-    git -C "$USER_REPO" checkout --quiet "$orig_ref"
-  else
-    git -C "$USER_REPO" checkout --detach --quiet "$orig_head"
+  # Backward-compat: old single-project snapshots stored files at $dir/
+  # (no p0/ subdir). Detect + handle inline.
+  if [[ -f "$dir/orig_head.txt" && ! -d "$dir/p0" ]]; then
+    echo "Legacy single-project snapshot detected — rolling back primary only"
+    local orig_head orig_ref
+    orig_head=$(cat "$dir/orig_head.txt")
+    orig_ref=$(cat "$dir/orig_ref.txt")
+    if [[ "$orig_ref" != "DETACHED" ]]; then
+      git -C "$USER_REPO" checkout --quiet "$orig_ref"
+    else
+      git -C "$USER_REPO" checkout --detach --quiet "$orig_head"
+    fi
+    git -C "$USER_REPO" reset --hard --quiet "$orig_head"
+    [[ -s "$dir/diff.patch" ]] && \
+      { git -C "$USER_REPO" apply "$dir/diff.patch" 2>/dev/null || echo "WARN: diff didn't re-apply"; }
+    echo "rolled back to $dir"
+    return 0
   fi
-  git -C "$USER_REPO" reset --hard --quiet "$orig_head"
 
-  # Reapply uncommitted state
-  if [[ -s "$dir/diff.patch" ]]; then
-    git -C "$USER_REPO" apply "$dir/diff.patch" 2>/dev/null || \
-      echo "WARN: diff.patch didn't re-apply cleanly"
-  fi
-
-  # Restore untracked files from filtered list (best-effort — only those still tracked in agent's snapshot won't help; the diff covers tracked changes; untracked files we logged but can't restore from a list-only snapshot)
-  # This implementation is intentionally minimal — for full restoration use cmd_begin/restore instead.
-  echo "rolled back to $dir"
+  # New layout: iterate p0/, p1/, … in numeric order.
+  echo "rolling back from $dir:"
+  local any_fail=0
+  for pdir in "$dir"/p*; do
+    [[ -d "$pdir" ]] || continue
+    local idx="${pdir##*/p}"
+    if ! _rollback_one_project "$pdir" "$idx"; then
+      any_fail=1
+      [[ "$idx" == "0" ]] && { echo "FATAL: primary rollback failed" >&2; return 1; }
+    fi
+  done
+  [[ "$any_fail" == "1" ]] && echo "WARN: at least one secondary rollback failed (see lines above)"
+  echo "done"
 }
 
 cmd_list_snapshots() {

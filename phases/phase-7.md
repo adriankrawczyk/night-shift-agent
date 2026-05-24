@@ -30,10 +30,11 @@ Without this, `launchd-routine.plist.template` renders empty `<integer></integer
 ### Q7.3 — Hard wall
 Standard. Persist `.hard_wall_minutes`.
 
-### Q7.4 — Resilience tier (Full only)
+### Q7.4 — Resilience preset (Full only)
 Standard. Persist `.resilience = "conservative|balanced|aggressive"`.
+(NB: "balanced" here is the **resilience** preset — unrelated to the wizard's two tiers.)
 
-Default if Minimal/Balanced: "balanced".
+Default if Minimal: "balanced".
 
 ---
 

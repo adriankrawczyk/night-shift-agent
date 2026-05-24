@@ -133,7 +133,7 @@ Re-run the wizard after.
 
 ### 3. Greet the user, ask Q0.0
 
-Read `wizard-questions.yaml`, find entry `id: q0_0`, present it via `AskUserQuestion`. Record answer to `$ANSWERS_JSON` under `q0_0`. The answer determines the `tier` variable: `minimal | balanced | full`.
+Read `wizard-questions.yaml`, find entry `id: q0_0`, present it via `AskUserQuestion`. Record answer to `$ANSWERS_JSON` under `q0_0`. The answer determines the `tier` variable: `minimal | full`.
 
 Save tier to scan JSON as well:
 ```bash
@@ -223,7 +223,7 @@ This is the authoritative list of every `{{ variable }}` referenced by `template
 
 | Variable | Question / source | Notes |
 |---|---|---|
-| `tier` | Q0.0 → `$ANSWERS_JSON.tier` | one of `minimal|balanced|full` |
+| `tier` | Q0.0 → `$ANSWERS_JSON.tier` | one of `minimal|full` (no "balanced" — that label belongs to the Q7.4 resilience preset, a separate concept) |
 | `install_dir` | Q0.3 → `$ANSWERS_JSON.install_dir` | abs path, e.g., `/Users/foo/night-shift-agent` |
 | `brief_length` | Q4.3 → `$ANSWERS_JSON.brief_length` | `lean|medium|deep` |
 | `execution_mode` | Q7.1 → `$ANSWERS_JSON.execution_mode` | `local|cloud|both|on_demand` |

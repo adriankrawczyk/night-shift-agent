@@ -120,7 +120,7 @@ Project → worktree map:
 
 You may generate patches against **any** project. Per patch, set its `project_index` (the `N` above) so the wrapper knows which worktree it lives in.
 
-**Snapshot/restore caveat:** For v0.1, `protect-user-state.sh snapshot` and `apply`/`restore` only cover **USER_REPO_0** (the primary). Secondary projects (USER_REPO_1+) are write-capable via their worktrees but **not** snapshotted — meaning a buggy patch that escapes the worktree into the secondary's working tree has no rollback. Treat USER_REPO_1+ with extra caution: never use `protect-user-state.sh apply` for a non-primary patch, and never mutate USER_REPO_1+ directly. Verify methods are project-specific — never run project A's `pytest` in project B's worktree.
+**Snapshot/restore (multi-project):** `protect-user-state.sh snapshot` walks every USER_REPO_N — each project gets its own `snap-<id>/p<N>/` dir with HEAD, ref, status hash, and uncommitted diff. `rollback <snap-id>` iterates p<N>/ in numeric order. Primary failure aborts; secondary failure WARNs and continues (other projects still restore). `apply <id> <patch>` and `begin <id>` still operate on **primary only** for v0.1 (the test-patch workflow assumes one focused checkpoint at a time). For a patch targeting a non-primary project, stage it in that project's worktree under AGENT_WORKTREE_<N> instead. Verify methods are project-specific — never run project A's `pytest` in project B's worktree.
 
 `WORKTREE` and `USER_REPO` (without index) alias the **primary** (project 0) for backward compat with single-project recipes. For multi-project recipes, always use the indexed form.
 {{/if}}
@@ -286,13 +286,13 @@ Loop per recipe in your priority order. For each:
    - Read relevant code files (just the ones you need)
    - Apply the recipe's analysis template
    - Form 1-3 hypotheses if it's a bug; pick one or branch into multiple patches
-   - Generate patch via subagent (`{{ install_dir }}/subagents/coder.md`)
+   - Generate patch via subagent (`{{ install_dir }}/.claude/agents/coder.md`)
    - Run verify methods
    {{#if reviewer_persona_enabled}}
-   - Run reviewer-style review (`{{ install_dir }}/subagents/reviewer.md`)
+   - Run reviewer-style review (`{{ install_dir }}/.claude/agents/reviewer.md`)
    {{/if}}
    {{#if ui_automation_enabled}}
-   - For UI-touching patches: live verify via {{ ui_automation_tool }} (`{{ install_dir }}/subagents/tester.md`)
+   - For UI-touching patches: live verify via {{ ui_automation_tool }} (`{{ install_dir }}/.claude/agents/tester.md`)
    {{/if}}
    - Iterate v1 → v2 → v3 if verify fails (max 3 approaches per patch)
    - On final pass: save to `{{ install_dir }}/patches/${TODAY}/<id>.patch`

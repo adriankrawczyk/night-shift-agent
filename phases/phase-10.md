@@ -12,7 +12,7 @@ In <install_dir>/:
   - run.sh (runner script)
   - settings.json (permissions)
   - launchd-routine.plist (schedule)
-  - subagents/coder.md (helper persona)
+  - .claude/agents/coder.md (helper persona — Claude Code's subagent discovery convention)
   - <list each file>
 
 Plus:
