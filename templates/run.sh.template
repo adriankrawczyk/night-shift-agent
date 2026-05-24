@@ -263,12 +263,11 @@ RATE_LIMIT_RETRIES=0
 ATTEMPT=1
 
 delivery_complete() {
-  # Recipe-defined success criterion. Check if expected outputs exist.
-  {{#each output_channels}}
-  {{#if (eq this "markdown")}}
+  # brief.md is the canonical local copy — agent must write it regardless
+  # of which downstream channels are configured. Other channels (email,
+  # slack, drive) READ from this file to deliver. If it's missing, the
+  # agent didn't finish — retry.
   [[ -f "$RUNTIME_DIR/brief.md" ]] || return 1
-  {{/if}}
-  {{/each}}
   return 0
 }
 

@@ -53,7 +53,7 @@ See `templates/README.md` for the full template grammar.
 | `<install>/settings.json` | `settings.json.template` | always |
 | `<install>/recipes/<id>.yaml` | (copied verbatim from `$INSTALLER_DIR/recipes/<id>.yaml`) | per picked recipe |
 | `<install>/subagents/coder.md` | `subagent-coder.md.template` | always |
-| `<install>/subagents/reviewer.md` | `subagent-reviewer.md.template` | if reviewer_persona_enabled |
+| `<install>/subagents/reviewer.md` | `subagent-reviewer.md.template` | if `reviewer_persona_enabled` AND `len(reviewer_persona_handle) > 0` (skip rendering when persona was enabled but PERSONA_BUILDER produced no usable handle — e.g. bot-only handles, network failure — to avoid `Read .../reviewer-style.md` failing at first action) |
 | `<install>/subagents/tester.md` | `subagent-tester.md.template` | if ui_automation_enabled |
 | `<install>/subagents/triager.md` | `subagent-triager.md.template` | if "bug_triager" in recipes |
 | `<install>/reviewer-style.md` | (generated, not templated — built via `PERSONA_BUILDER.md`) | if reviewer_persona_enabled |
