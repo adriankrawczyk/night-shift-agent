@@ -45,7 +45,9 @@ SETTINGS="$ROUTINE_DIR/settings.json"
 {{ pattern.P2 }}
 
 # === Timeout constants ===
-CLAUDE_HARD_TIMEOUT_SEC={{ hard_wall_seconds }}
+# Env-overridable for testing + fire-drill (default = wizard-configured hard wall).
+# CI/QA can shorten via NIGHT_SHIFT_HARD_WALL_SEC=60 to verify the watchdog fires.
+CLAUDE_HARD_TIMEOUT_SEC="${NIGHT_SHIFT_HARD_WALL_SEC:-{{ hard_wall_seconds }}}"
 
 # === Pattern P7: timeout binary resolution ===
 {{ pattern.P7 }}
@@ -425,7 +427,30 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
           < "$PROMPT" 2>&1 | tee -a "$LOG"
       ;;
     perl-alarm)
-      perl -e '$t=shift; alarm $t; exec @ARGV; die "exec failed"' \
+      # NB: previous version did `alarm $t; exec @ARGV` which is BROKEN —
+      # `exec` replaces the perl process with the child, so SIGALRM never
+      # fires and the wall is effectively infinite. Fix: fork the child,
+      # arm alarm in the parent, kill the child group on alarm.
+      perl -e '
+        my $timeout = shift;
+        my $pid = fork;
+        die "fork failed: $!" unless defined $pid;
+        if ($pid == 0) {
+          setpgrp(0, 0);  # new process group so we can kill children together
+          exec @ARGV;
+          die "exec failed: $!";
+        }
+        $SIG{ALRM} = sub {
+          kill 15, -$pid; sleep 5; kill 9, -$pid;
+          exit 124;
+        };
+        alarm $timeout;
+        waitpid $pid, 0;
+        alarm 0;
+        my $rc = $? >> 8;
+        my $sig = $? & 127;
+        exit ($sig ? 128 + $sig : $rc);
+      ' \
         "$CLAUDE_HARD_TIMEOUT_SEC" \
         "$HOME/.local/bin/claude" \
           --print \
