@@ -205,6 +205,51 @@ else
 fi
 {{/if}}
 
+# === STACK PREFLIGHT — install deps in worktree so verify commands work ===
+# Without this, the agent burns 1-2 min per attempt re-running pip install /
+# npm install / cargo fetch before pytest/eslint/clippy can even start. Detect
+# package manager from lockfile + run the stack-appropriate install. Skip
+# silently if the lockfile / tool isn't there. Failures non-fatal — agent can
+# still self-recover, just slower.
+stack_preflight() {
+  cd "$WORKTREE" || return 0
+  # Node ecosystem
+  if [[ -f package-lock.json ]] && command -v npm >/dev/null 2>&1; then
+    [[ -d node_modules ]] || { log_both "Preflight: npm install"; npm install --no-audit --no-fund --silent 2>>"$LOG" || true; }
+  elif [[ -f yarn.lock ]] && command -v yarn >/dev/null 2>&1; then
+    [[ -d node_modules ]] || { log_both "Preflight: yarn install"; yarn install --silent 2>>"$LOG" || true; }
+  elif [[ -f pnpm-lock.yaml ]] && command -v pnpm >/dev/null 2>&1; then
+    [[ -d node_modules ]] || { log_both "Preflight: pnpm install"; pnpm install --silent 2>>"$LOG" || true; }
+  fi
+  # Python ecosystem — covers pyproject.toml + uv/poetry/pipenv/pip
+  if [[ -f uv.lock ]] && command -v uv >/dev/null 2>&1; then
+    log_both "Preflight: uv sync"; uv sync --frozen 2>>"$LOG" || true
+  elif [[ -f poetry.lock ]] && command -v poetry >/dev/null 2>&1; then
+    log_both "Preflight: poetry install"; poetry install --no-interaction 2>>"$LOG" || true
+  elif [[ -f Pipfile.lock ]] && command -v pipenv >/dev/null 2>&1; then
+    log_both "Preflight: pipenv sync"; pipenv sync --dev 2>>"$LOG" || true
+  elif [[ -f pyproject.toml ]] && command -v pip >/dev/null 2>&1; then
+    # No lockfile but pyproject — pip-install with dev extras if declared
+    if grep -q '\[project.optional-dependencies\]' pyproject.toml 2>/dev/null && grep -qE '^dev\s*=' pyproject.toml 2>/dev/null; then
+      log_both "Preflight: pip install -e .[dev]"; pip install -e '.[dev]' --quiet 2>>"$LOG" || true
+    else
+      log_both "Preflight: pip install -e ."; pip install -e . --quiet 2>>"$LOG" || true
+    fi
+  elif [[ -f requirements.txt ]] && command -v pip >/dev/null 2>&1; then
+    log_both "Preflight: pip install -r requirements.txt"; pip install -r requirements.txt --quiet 2>>"$LOG" || true
+  fi
+  # Rust — cargo fetch warms the dep cache (cargo would do this lazily on first build, but eats agent budget)
+  if [[ -f Cargo.toml ]] && command -v cargo >/dev/null 2>&1; then
+    [[ -d target ]] || { log_both "Preflight: cargo fetch"; cargo fetch --quiet 2>>"$LOG" || true; }
+  fi
+  # Go — go mod download
+  if [[ -f go.sum ]] && command -v go >/dev/null 2>&1; then
+    log_both "Preflight: go mod download"; go mod download 2>>"$LOG" || true
+  fi
+  emit_json info stack_preflight_done
+}
+stack_preflight
+
 {{#if (eq ui_automation_tool "argent")}}
 # === ARGENT PROBE — side-channel ground truth ===
 # Past incident: agent rationalized argent-skip with "MCP tools didn't load this

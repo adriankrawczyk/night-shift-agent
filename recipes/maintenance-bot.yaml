@@ -44,6 +44,7 @@ gather_steps:
     elif [ -f yarn.lock ]           && command -v yarn >/dev/null;  then yarn outdated --json 2>/dev/null
     elif [ -f pnpm-lock.yaml ]      && command -v pnpm >/dev/null;  then pnpm outdated --format json 2>/dev/null
     elif [ -f Cargo.lock ]          && command -v cargo >/dev/null; then cargo outdated --format=json 2>/dev/null
+    elif [ -f uv.lock ]             && command -v uv >/dev/null;    then uv tree --outdated 2>/dev/null
     elif [ -f Pipfile.lock ]        && command -v pipenv >/dev/null;then pipenv update --outdated 2>/dev/null
     elif [ -f poetry.lock ]         && command -v poetry >/dev/null;then poetry show --outdated 2>/dev/null
     elif [ -f requirements.txt ]    && command -v pip >/dev/null;   then pip list --outdated --format=json 2>/dev/null
