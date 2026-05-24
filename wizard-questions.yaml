@@ -189,19 +189,43 @@ questions:
   tier_filter:
   - full
   depends_on: null
-  header_template: '{{ current_mcp_name }}: narrow scope'
-  text_template: 'Looking at **{{ current_mcp_name }}**, it can read from:
+  header_template: '{{ current_mcp_name }}: narrow read scope'
+  text_template: 'I''ll only READ from **{{ current_mcp_name }}** — what I find becomes drafts, suggested replies, or signals in your morning brief. I never send, comment, or post unless you explicitly enable it (next question).
+
+
+    Which units should I read from?
 
 
     {{ scoping_units_for_current_mcp }}
 
 
-    Which should I focus on? Pick what''s relevant to your goals — others won''t be touched.
+    Pick what''s relevant. Anything you skip stays invisible to me.
 
     '
   options_source: mcp_scoping_units
   loop_over: connected_services
   store_as: services_scoping[]
+- id: q2_4
+  phase: 2
+  type: multi-select
+  tier_filter:
+  - full
+  depends_on: len(write_capable_tools_detected) > 0
+  header: Active writes (default off)
+  text_template: 'By default I only PRODUCE artifacts — patches on disk, drafts in your brief. You apply / send / post them in the morning.
+
+
+    Some users want me to actively do narrow things at night. Pick ONLY what you explicitly want — everything else stays draft-only and lands in the brief:
+
+
+    {{ write_opt_in_options }}
+
+
+    Anything I post or send will be tagged "via night-shift-agent" so you can spot it. Change later: `night-shift edit-writes`.
+
+    '
+  options_source: write_capable_tools_detected
+  store_as: write_opt_in
 - id: q3_1
   phase: 3
   type: single-select

@@ -104,7 +104,8 @@
       "Edit(~/.zprofile)",
       "Edit(~/.zlogout)",
       "Edit(~/Library/LaunchAgents/**)",
-      "Edit(~/Library/LaunchDaemons/**)"
+      "Edit(~/Library/LaunchDaemons/**)"{{#each denied_write_tools}},
+      "{{ this }}"{{/each}}
     ]
   }
 }
