@@ -1,11 +1,11 @@
 # Night Shift Brief — 2026-05-23
 
-> Sample output from a Balanced-tier night-shift run. Yours will look different — recipes, channels, and verbosity are configurable. This shows the typical deliverable so you know what to expect before installing.
+> Sample output from a Full-tier night-shift run. Yours will look different — recipes, channels, and verbosity are configurable. This shows the typical deliverable so you know what to expect before installing.
 
 ## TL;DR
 
-- Shipped 4 patches for 2 open PRs (#412 review comments + #418 promo image rounding).
-- 1 bug from Sentry feed reproduced, fixed, PR opened (#421).
+- Shipped 4 patches across 2 open PRs (#412 review comments + #418 image rounding).
+- 1 bug from the bug tracker reproduced, fixed, PR opened (#421).
 - 3 self-noted TODOs in your draft PR #419 addressed.
 - 2 items need your decision (linked below).
 - Spent 142 min of 300 min budget.
@@ -14,48 +14,48 @@
 
 | ID | Title | Files | Risk | Verify | Delivery |
 |---|---|---|---|---|---|
-| `2026-05-23-01` | Address PR #412 review: extract pinch-zoom into hook | `src/features/promos/PromoCard.tsx`, `src/features/promos/hooks/usePinchZoom.ts` (new) | low | typecheck ✓ lint ✓ test ✓ | PR #412 commit `a3f2c1` |
-| `2026-05-23-02` | PR #412 review: drop positional booleans from `formatPromoTitle` | `src/utils/formatPromoTitle.ts`, `src/features/promos/PromoCard.tsx`, `src/features/promos/PromoList.tsx` | medium | typecheck ✓ lint ✓ test ✓ | PR #412 commit `b8e4d2` |
-| `2026-05-23-03` | PR #418: round promo card image corners (not the border) | `src/features/promos/PromoImage.tsx` | low | typecheck ✓ lint ✓ test ✓ argent-verify ✓ | PR #418 commit `c1f8a9` |
-| `2026-05-23-04` | Fix your_app-464: `$` concat instead of `formatCurrency` in share content | `src/features/share/CardsListShareContent.tsx` | medium | typecheck ✓ lint ✓ test ✓ | PR #421 (new) |
+| `2026-05-23-01` | Address PR #412 review: extract pinch-zoom into hook | `src/features/cards/CardView.tsx`, `src/features/cards/hooks/usePinchZoom.ts` (new) | low | typecheck ✓ lint ✓ test ✓ | PR #412 commit `a3f2c1` |
+| `2026-05-23-02` | PR #412 review: drop positional booleans from `formatTitle` | `src/utils/formatTitle.ts`, `src/features/cards/CardView.tsx`, `src/features/cards/CardList.tsx` | medium | typecheck ✓ lint ✓ test ✓ | PR #412 commit `b8e4d2` |
+| `2026-05-23-03` | PR #418: round card image corners (not the border) | `src/features/cards/CardImage.tsx` | low | typecheck ✓ lint ✓ test ✓ ui-verify ✓ | PR #418 commit `c1f8a9` |
+| `2026-05-23-04` | Fix PROJ-464: raw `$` concat instead of `formatCurrency` in share content | `src/features/share/ShareContent.tsx` | medium | typecheck ✓ lint ✓ test ✓ | PR #421 (new) |
 
 ## Things needing your attention
 
-- **PR #420 (Basia's draft) review comment**: she asked "czy to nie powinno być przez `Intl.NumberFormat`?". I noted but did NOT patch — this is her ticket per the assignment gate. Suggested reply draft below.
-- **your_app-471 (Linear)**: ambiguous repro ("buttons feel slow on Android"). No stack trace, can't reproduce on simulator. Logged as decisions-needed — needs your input on which screen.
+- **PR #420 (teammate's draft) review comment**: they asked "shouldn't this go through `Intl.NumberFormat`?". I noted but did NOT patch — this is their ticket per the assignment gate. Suggested reply draft below.
+- **PROJ-471 (issue tracker)**: ambiguous repro ("buttons feel slow on Android"). No stack trace, can't reproduce on simulator. Logged as decisions-needed — needs your input on which screen.
 
 ## Carryover status
 
-- `2026-05-22-03` (promo rounded corners) — applied via PR #418 merge today ✓ dropped from ledger.
+- `2026-05-22-03` (card rounded corners) — applied via PR #418 merge today ✓ dropped from ledger.
 - `2026-05-22-05` (currency Intl refactor) — still open in your branch, no agent action (you said "in progress").
 
 ## Failed attempts (saved as evidence)
 
-- Tried hypothesis: blank spaces in PR #419 head2head are caused by missing `extraData` on LegendList. Tested on simulator — no repro. Backed out v1 patch. Hypothesis v2: it's the mode-toggle re-render path. v2 reproduced + fixed.
-- Tried to address codex-bot comment on PR #380 (deny-list pattern). Skipped per `skip_bot_review_when_basia_silent` policy — Basia didn't echo it in her review.
+- Tried hypothesis: blank spaces in PR #419 list view are caused by missing `extraData` on virtualized list. Tested on simulator — no repro. Backed out v1 patch. Hypothesis v2: it's the mode-toggle re-render path. v2 reproduced + fixed.
+- Tried to address bot-reviewer comment on PR #380 (deny-list pattern). Skipped per skip-bot-when-human-silent policy — the human reviewer didn't echo it in their review.
 
-## Bug feed analysis (Sentry + Slack + Linear)
+## Bug feed analysis
 
-- **your_app-464** (Sentry, P1, tractable-tonight) — fixed in PR #421 above.
-- **your_app-471** (Linear, P2, needs-design) — see decisions-needed above.
-- **#nueva-swm Slack 2026-05-22 17:42** (Don): "head2head ma jakieś blank spaces" — diagnosed as LegendList recycling, fixed in PR #419 commit `d4e8f1`.
+- **PROJ-464** (bug tracker, P1, tractable-tonight) — fixed in PR #421 above.
+- **PROJ-471** (bug tracker, P2, needs-design) — see decisions-needed above.
+- **Team chat 2026-05-22 17:42**: "list view shows blank spaces" — diagnosed as virtualized-list recycling, fixed in PR #419 commit `d4e8f1`.
 
-## Draft replies (Slack threads expecting your input)
+## Draft replies (chat threads expecting your input)
 
-> **#nueva-swm reply to Basia on PR #420 review comment (https://github.com/nueva-tcg/your-app/pull/420#discussion_r_xxx):**
-> Z `Intl.NumberFormat` byłoby konsystentne z resztą, ale tu lokalizacja jest twardo PL — myślisz że warto rozszerzać czy zostawiamy stałą?
+> **Reply to teammate on PR #420 review comment:**
+> Using `Intl.NumberFormat` would be consistent with the rest, but here the locale is hard-coded — do you think it's worth extending or keeping the static value?
 
-> **#nueva-swm reply to Don re: head2head blank spaces:**
-> Naprawione w #419 — był extraData missing na toggle layout. Sprawdziłem na simulatorze, blanków już nie ma.
+> **Reply re: list view blank spaces:**
+> Fixed in #419 — `extraData` was missing on layout toggle. Verified on simulator, no more blanks.
 
 ## Self-feedback (for meta-agent)
 
 What went well:
-- Reviewer-style pre-check on patch #2 caught the positional-booleans issue before reviewer would have.
-- Argent live-verify on patch #3 confirmed visual change matched intent (not just code change).
+- Reviewer-style pre-check on patch #2 caught the positional-booleans issue before the reviewer would have.
+- UI live-verify on patch #3 confirmed the visual change matched intent (not just code change).
 
 What went poorly:
-- Spent 22 min on the head2head blank-spaces hypothesis v1 before realizing the metric I was using (mount-to-onLoad) was wrong axis. Should have switched to freshMounts-vs-transitions sooner per existing memory entry.
+- Spent 22 min on the list-view blank-spaces hypothesis v1 before realizing the metric I was using (mount-to-onLoad) was the wrong axis. Should have switched to freshMounts-vs-transitions sooner per existing memory entry.
 
 One specific change to try next time:
 - When investigating a "feels slow / blank" UI report, START with the freshMounts-vs-transitions metric, not the mount timing metric. Add this preference to the prompt's STEP 3 bug investigation section.

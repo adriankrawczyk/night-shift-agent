@@ -146,7 +146,7 @@ osascript -e 'tell application "Calendar" to get name of every calendar' 2>/dev/
 ```
 
 Use Section F to write a 2–3 line "Day shape" paragraph at the top of the report's Priorities section:
-> the maintainer worked across your-app (12 commits) AND a side-repo `notes-cli` (3 commits). VSCode had design specs from Figma open in the morning; pm was 3 PR review sessions. Calendar shows a 14–15 1:1 — that's the activity gap. zsh history shows `npm install reanimated@3.18-rc1` then `expo prebuild --clean` — likely the cause of the 3pm rebuild that the maintainer abandoned (failed install). Night agent should consider whether the reanimated bump is relevant to any open PR.
+> User worked across `my-app` (12 commits) AND a side-repo `notes-cli` (3 commits). VSCode had design specs from Figma open in the morning; pm was 3 PR review sessions. Calendar shows a 14–15 1:1 — that's the activity gap. zsh history shows `npm install some-dep@3.18-rc1` then `expo prebuild --clean` — likely the cause of the 3pm rebuild the user abandoned (failed install). Night agent should consider whether the dep bump is relevant to any open PR.
 
 ## Tone
 

@@ -252,7 +252,7 @@ User provides text content. Wizard parses for category signals using the same St
 
 `<install>/reviewer-style.md` — committed to install dir's git if `gh_repo.create` is on (anonymized version if user picked anonymize).
 
-If multiple reviewers (e.g., the maintainer has Basia + Don):
+If multiple reviewers (e.g., the user lists two — Alex + Sam):
 - Generate `<install>/reviewer-styles/<handle>.md` per reviewer
 - Plus a roll-up `<install>/reviewer-style.md` indexing them with cross-references
 

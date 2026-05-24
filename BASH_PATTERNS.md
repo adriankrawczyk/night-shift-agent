@@ -1,6 +1,6 @@
 # Bash Patterns — Universal Library
 
-> Every bash pattern below is battle-tested in production (in `~/reference-setup/run.sh` and adjacent scripts since early 2026). When the wizard generates `run.sh` or any other bash file for a user, it pulls from here verbatim. Do NOT improvise these patterns — every gotcha is documented inline.
+> Every bash pattern below is battle-tested in production (in a working night-shift system running daily since early 2026). When the wizard generates `run.sh` or any other bash file for a user, it pulls from here verbatim. Do NOT improvise these patterns — every gotcha is documented inline.
 
 Each pattern has:
 - **Pattern ID** (referenced by templates: `{{ pattern.<id> }}`)

@@ -96,8 +96,8 @@ The user can kill the wizard at any time (Ctrl-C, close terminal, reboot, power 
 ### 2.5. Capture system context (used by templates)
 
 ```bash
-SYS_USER_NAME="$(id -un)"                                 # e.g., "adriankrawczyk"
-SYS_USER_HOME="$HOME"                                     # e.g., "$HOME"
+SYS_USER_NAME="$(id -un)"                                 # e.g., "alice"
+SYS_USER_HOME="$HOME"                                     # e.g., "/Users/alice"
 SYS_USER_EMAIL="$(git config --global user.email)"        # used for email subject + notifications
 SYS_USER_SHORT="$(echo "$SYS_USER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g')"
                                                           # used for launchd Label (com.<short>.night-shift-routine)

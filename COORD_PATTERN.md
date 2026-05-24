@@ -105,7 +105,7 @@ When a mode (local or cloud) fires:
 
 ### Step 1 — Compute today's local date
 ```bash
-TODAY=$(date +%F)  # both modes — the maintainer-style use Europe/Warsaw if user is there
+TODAY=$(date +%F)  # both modes — use the user's local TZ if they aren't in UTC
 ```
 
 ### Step 2 — Read coord (try both stores)

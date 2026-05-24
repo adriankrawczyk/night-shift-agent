@@ -200,7 +200,7 @@ if [ ! -f "$COORD_GIST_ID_FILE" ]; then
 fi
 COORD_GIST_ID="$(cat "$COORD_GIST_ID_FILE" 2>/dev/null)"
 [ -n "$COORD_GIST_ID" ] && gh gist view "$COORD_GIST_ID" --files coord.json
-# Drive: mcp__drive__search "your-app-coord <today>"
+# Drive: mcp__drive__search "night-shift-coord <today>"
 ```
 
 Decision logic (run before STEP 1):

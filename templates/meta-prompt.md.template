@@ -45,7 +45,7 @@ If part is tactical and part architectural → ship whole PR as architectural. D
 
 Before proposing any edit:
 
-1. Read `~/reference-setup/META-DECISIONS.md` (your append-only ledger of past meta-PRs + user's verdicts).
+1. Read `{{ install_dir }}/META-DECISIONS.md` (your append-only ledger of past meta-PRs + user's verdicts).
 2. For entries tagged `user_reverted: true` or `do_not_touch: true`: DO NOT REINTRODUCE.
 3. Read `git log --since=14days --oneline` on `{{ install_dir }}`.
 4. For each non-`[meta-agent]` commit the user made: check if it reverts lines a meta-PR added. If yes, that's a hard signal — don't re-propose.

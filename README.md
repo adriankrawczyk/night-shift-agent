@@ -16,7 +16,7 @@ It is **not** a SaaS. There is no remote server you depend on, no account to cre
 
 The hard part of running an LLM agent overnight isn't the LLM — it's the infrastructure. Lockfiles. Heartbeats. Stall watchdogs. Cleanup traps. PATH gotchas under `launchd`. Credential scrubbing in logs. Network recovery if wifi drops. Caffeinate so the Mac doesn't sleep mid-run. Snapshot/restore so the agent doesn't corrupt your working tree. Retry loops that respect rate limits. Permission sandboxes so it can't `rm -rf $HOME`.
 
-These eat days of debugging in production. This installer bakes in patterns from a real working system (`~/reference-setup`, in daily use since early 2026) and asks you the right configuration questions to wire them to *your* setup — your stack, your tools, your project, your risk tolerance.
+These eat days of debugging in production. This installer bakes in battle-tested patterns from a real working night-shift system and asks you the right configuration questions to wire them to *your* setup — your stack, your tools, your project, your risk tolerance.
 
 ## Quick start
 
@@ -128,12 +128,6 @@ bash validate.sh
 ```
 
 It checks repo layout, question-ID consistency, bash-pattern extraction, wizard-questions schema, recipe-YAML schema, depends_on cross-resolution (catches silent-skip bugs where a question references a derived var that no phase computes), recipe-trigger cross-resolution against phase-1's evaluator catalog (catches "trigger never fires so recipe never appears in picker"), template-var cross-resolution against META_PROMPT.md schema (catches "template uses var X but META_PROMPT doesn't define it → renders as empty string at install"), then renders every template against two mock contexts (minimal / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, `jq empty`, shellcheck, and golden-file regression on security-critical surfaces. 85 assertions; takes <5 seconds. Use in CI or before sharing changes.
-
-## Credits & lineage
-
-Built on patterns extracted from a private working night-shift agent in daily use since early 2026 (single-user, single-repo, hard-coded to one stack — this OSS installer generalizes the same architecture so anyone can wire it to their own project, stack, and tooling).
-
-Reviewer-persona idea + tactical/architectural meta-agent taxonomy + bash gotchas catalog — all from that system, generalized. See [`DESIGN.md`](DESIGN.md) for the architectural lineage.
 
 ## License
 
