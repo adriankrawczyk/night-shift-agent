@@ -213,6 +213,8 @@ This is the authoritative list of every `{{ variable }}` referenced by `template
 | `user_email` | `$SCAN_JSON.system.user_email` | from `git config --global user.email` |
 | `user_short` | `$SCAN_JSON.system.user_short` | sanitized for launchd Label |
 | `generated_at` | `$SCAN_JSON.system.generated_at` | ISO UTC string |
+| `installer_version` | `$SCAN_JSON.system.installer_version` | from `$INSTALLER_DIR/VERSION` (stamped into every generated artifact's header for traceability) |
+| `installer_commit` | `$SCAN_JSON.system.installer_commit` | `git rev-parse --short HEAD` in `$INSTALLER_DIR` (same traceability purpose) |
 
 ### Group B — Direct answers (per question, persist key matches template name)
 
