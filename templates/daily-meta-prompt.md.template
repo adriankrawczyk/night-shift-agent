@@ -83,6 +83,71 @@ git -C {{ this.path }} diff --name-only HEAD@{1day} HEAD
 {{/each}}
 ```
 
+### F. Local user activity (broader than the configured project)
+
+Goal: spot context that explains the day without limiting scope to the one project. Be conservative — these scans should take seconds, not minutes. Truncate aggressively (top 10–20 per section). NEVER include this data verbatim in the report; summarize.
+
+**F.1 Git activity across ALL repos** — what was user committing/touching outside their main project today:
+```bash
+# Find every git repo under ~ touched in last 24h, list its today commits
+find "$HOME" -maxdepth 4 -name .git -type d -prune -newer ~/.last_meta_run.marker 2>/dev/null \
+  | head -30 \
+  | while read gitdir; do
+      repo="$(dirname "$gitdir")"
+      base="$(basename "$repo")"
+      commits=$(git -C "$repo" log --author="$(git -C "$repo" config user.email)" --since='today 00:00' --oneline 2>/dev/null | head -10)
+      [ -n "$commits" ] && printf '%s:\n%s\n\n' "$base" "$commits"
+    done
+touch ~/.last_meta_run.marker
+```
+
+**F.2 Recent files (VSCode workspace history + macOS mdfind + Downloads)**:
+```bash
+# VSCode: workspace history index (JSONs naming recent files)
+ls -lt "$HOME/Library/Application Support/Code/User/History" 2>/dev/null | head -20
+
+# macOS: files modified today, NOT under common noise dirs
+mdfind -onlyin "$HOME" "kMDItemContentModificationDate >= \$time.today" 2>/dev/null \
+  | grep -v -E '/Library/|/node_modules/|/\.git/|/\.cache/|/Trash/' \
+  | head -30
+
+# Recent downloads
+ls -lt "$HOME/Downloads" 2>/dev/null | head -10
+```
+
+**F.3 Shell history (with mandatory secret scrub)** — what user ran in terminal today:
+```bash
+# Tail today's history with timestamp filter; scrub credential-shaped strings
+HIST="${HISTFILE:-$HOME/.zsh_history}"
+[ -f "$HIST" ] || HIST="$HOME/.bash_history"
+[ -f "$HIST" ] && tail -n 500 "$HIST" 2>/dev/null \
+  | sed -E \
+      -e 's/ghp_[A-Za-z0-9_-]{20,}/ghp_<REDACTED>/g' \
+      -e 's/ghs_[A-Za-z0-9_-]{20,}/ghs_<REDACTED>/g' \
+      -e 's/github_pat_[A-Za-z0-9_-]+/github_pat_<REDACTED>/g' \
+      -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/xox?-<REDACTED>/g' \
+      -e 's/AKIA[0-9A-Z]{16}/AKIA<REDACTED>/g' \
+      -e 's/sk-ant-[A-Za-z0-9_-]+/sk-ant-<REDACTED>/g' \
+      -e 's/Bearer [A-Za-z0-9._-]{20,}/Bearer <REDACTED>/g' \
+      -e 's/[A-Za-z0-9._-]{40,}/<REDACTED-LONGSTRING>/g'
+```
+
+If a `<REDACTED>` marker appears in the scrubbed output, treat THAT line as fully sensitive — don't quote it verbatim in the report, just say "user ran a curl/echo with a credential present at line N" so the night agent knows to skip the area.
+
+**F.4 Open apps + today's calendar**:
+```bash
+# Open foreground apps (macOS only)
+osascript -e 'tell application "System Events" to get name of every process whose background only is false' 2>/dev/null
+
+# Today's calendar events (if Calendar MCP connected)
+# Use: mcp__calendar__list_events with today's date range
+# Or fallback if no MCP:
+osascript -e 'tell application "Calendar" to get name of every calendar' 2>/dev/null
+```
+
+Use Section F to write a 2–3 line "Day shape" paragraph at the top of the report's Priorities section:
+> the maintainer worked across your-app (12 commits) AND a side-repo `notes-cli` (3 commits). VSCode had design specs from Figma open in the morning; pm was 3 PR review sessions. Calendar shows a 14–15 1:1 — that's the activity gap. zsh history shows `npm install reanimated@3.18-rc1` then `expo prebuild --clean` — likely the cause of the 3pm rebuild that the maintainer abandoned (failed install). Night agent should consider whether the reanimated bump is relevant to any open PR.
+
 ## Tone
 
 This report is consumed by another LLM (the night agent), not by a human. Be dense, terse, factual. Don't editorialize. Cite real numbers + file paths + names.
