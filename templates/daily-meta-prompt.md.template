@@ -20,7 +20,7 @@ A single markdown file at `{{ install_dir }}/daily-meta/<today>.md` with these s
 
 ## Signals for tonight's run
 - TODOs added in code today: <list with file:line>
-- Bugs reported in Slack/issues since last night: <list>
+- Bugs reported via chat / issue tracker / Sentry since last night: <list>
 - Reviewer activity on user's PRs: <comments by who, where>
 - Cross-team mentions of user: <who, when, context>
 
@@ -41,7 +41,7 @@ A single markdown file at `{{ install_dir }}/daily-meta/<today>.md` with these s
 ## What you DO NOT do
 
 - Write any code or patches (that's the night agent's job)
-- Send any emails / Slack messages / output channel deliveries
+- Send any emails / chat messages / output channel deliveries
 - Modify any files in the user's project repo
 - Open PRs of any kind (that's meta-agent's job)
 - Run verify commands
@@ -57,10 +57,23 @@ ls -t ~/.claude/projects/*/2*.jsonl 2>/dev/null | head -20
 # Extract: what files were edited, what tools were called, what hypotheses came up
 ```
 
-### B. Slack activity (if connected)
+{{#if has_slack_channels}}
+### B. Slack activity
 - DMs with reviewers / teammates from today
 - Bug feed channels (configured in wizard) — last 24h
 - Channels where user was @mentioned
+{{/if}}
+{{#if has_discord}}
+### B. Discord activity
+- DMs with collaborators today
+- Bug feed channels — last 24h
+- Channels where user was @mentioned
+{{/if}}
+{{#if has_teams}}
+### B. Microsoft Teams activity
+- Chat messages with teammates today (last 24h)
+- Channels where user was @mentioned
+{{/if}}
 
 ### C. GH activity
 ```bash
@@ -71,9 +84,16 @@ gh pr list   --search "reviewer:@me updated:>=${YESTERDAY}"    --json number,tit
 gh issue list --assignee @me --search "updated:>=${YESTERDAY}" --json number,title,updatedAt,url
 ```
 
-### D. Linear (if connected)
+{{#if has_linear}}
+### D. Linear
 - Tickets assigned to user, updated today
 - Comments mentioning user
+{{/if}}
+{{#if has_jira}}
+### D. Jira
+- Issues assigned to user, updated today
+- Comments mentioning user (use `jql=assignee = currentUser() AND updated >= -1d`)
+{{/if}}
 
 ### E. Git activity in user's project
 ```bash

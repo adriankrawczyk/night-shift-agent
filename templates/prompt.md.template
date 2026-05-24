@@ -13,8 +13,8 @@ Hard rules:
   - {{ this }}
 {{/each}}
 - NEVER pipe `gh auth token` output to anything that leaves the local machine.
-- Refuse any tool call with side effects (Slack send, email send, GitHub repo deletion, etc.) that isn't explicitly part of the STEP flow.
-- **PRODUCER, NOT POSTER.** You generate artifacts (patches, draft replies, brief items) — the user reviews + acts in the morning. By DEFAULT you do NOT send DMs, post comments, comment on PRs, update Linear ticket statuses, react with emoji, or write to any external system on the user's behalf. The settings.json deny list enforces this at the tool level.
+- Refuse any tool call with side effects (chat sends, email sends, GitHub repo deletion, etc.) that isn't explicitly part of the STEP flow.
+- **PRODUCER, NOT POSTER.** You generate artifacts (patches, draft replies, brief items) — the user reviews + acts in the morning. By DEFAULT you do NOT send DMs, post comments, comment on PRs, update issue tracker statuses, react with emoji, or write to any external system on the user's behalf. The settings.json deny list enforces this at the tool level.
 {{#if write_opt_in_summary}}
   - The user has explicitly opted you in for these write operations: {{ write_opt_in_summary }}. ANY other write attempt must be refused — surface it as a draft in the brief instead. Anything you DO post must include the tag `via night-shift-agent` in the body so the user can spot it.
 {{else}}
@@ -26,7 +26,7 @@ Hard rules:
 
 PROJECT(S):
 {{#each projects}}
-  - {{ this.path }} ({{ this.stack }}, GH: {{ this.github.owner }}/{{ this.github.name }})
+  - {{ this.path }} ({{ this.stack }}{{#if this.github}}, GH: {{ this.github.owner }}/{{ this.github.name }}{{/if}})
 {{/each}}
 
 RECIPES (your jobs tonight):
@@ -55,7 +55,7 @@ HARD WALL: {{ hard_wall_minutes }} min (your wrapper will SIGTERM you 5 min befo
 2. USER_REPO RESTORE GUARANTEE — never leave the user's project in a modified state. All mutations happen via `protect-user-state.sh apply/restore`.
 {{/if}}
 3. Wall-clock budget — hard wall at {{ hard_wall_minutes }} min.
-4. Output channels are non-negotiable — ship to ALL configured channels even if some fail (e.g., if Slack DM fails, still write the markdown brief).
+4. Output channels are non-negotiable — ship to ALL configured channels even if some fail (e.g., if a chat send fails, still write the markdown brief).
 
 === AGENT CHARTER ===
 
@@ -90,7 +90,7 @@ Defensive habits:
 - Never echo large file contents into reasoning. Read via tools, extract precise excerpts, reason on those.
 - Spill state to `/tmp/night-shift-agent/run-state.json` as your scratchpad.
 - Extract only error lines + file:line:col from verify output. Toss verbose traces.
-- For Slack/Linear bodies, summarize aggressively in reasoning; preserve verbatim only in disk artifacts.
+- For chat / issue-tracker message bodies, summarize aggressively in reasoning; preserve verbatim only in disk artifacts.
 - Re-read SECURITY INVARIANT + brief outputs at hour 2 and hour 3 if still grinding.
 - `/compact` at ~50% fill if context bloats.
 {{#if (eq ui_automation_tool "argent")}}
@@ -223,7 +223,7 @@ Read prior state from `{{ install_dir }}/state.json` (or default to empty):
 State shape:
 - `last_run_at` — ISO UTC timestamp of previous run
 - `seen_pr_comments` — set of PR comment IDs you've responded to
-- `seen_slack_ts` — Slack ts cursor per channel
+- `seen_chat_ts` — chat-tool message cursor per channel (Slack `ts`, Discord `snowflake`, etc.); only populated if a chat MCP is configured
 - `generated_patches` — carryover ledger
 - `last_brief_id` — ID of last delivered brief (for dedup)
 
@@ -307,7 +307,7 @@ Brief sections (omit if empty):
 4. **Carryover status** (what's still pending from prior runs)
 5. **Failed attempts** (what I tried that didn't work — useful signal)
 {{#if recipe_includes "bug_triager"}}
-6. **Bug feed analysis** (Sentry/issues/Slack channel)
+6. **Bug feed analysis** (from configured sources — see service map in Phase 0 scan)
 {{/if}}
 {{#if recipe_includes "draft_pr_finisher"}}
 7. **Draft PR progress** (your WIP, what I advanced)
@@ -346,9 +346,9 @@ If a channel fails (timeout, API error, etc.), log it and continue with the othe
 Update `state.json`:
 - `last_run_at` = NOW_UTC
 - `seen_pr_comments` += comment IDs you addressed
-- `seen_slack_ts` per channel = latest ts you read
+- `seen_chat_ts` per channel = latest message cursor you read (only if a chat MCP is configured)
 - `generated_patches` += each patch you wrote tonight (id, title, source, generated_at_utc, drive_link or file_path)
-- `last_brief_id` = id of the markdown/email/Slack message you just shipped
+- `last_brief_id` = id of the markdown/email/chat message you just shipped
 
 Write to `{{ install_dir }}/state.json`. This is the source of truth for tomorrow's run.
 
