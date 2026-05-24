@@ -165,9 +165,10 @@ Each `depends_on` is a single-line expression. The wizard evaluates it against a
 | `has_login_flow` | OR over `$SCAN_JSON.projects[].has_login_flow` |
 | `env_vars_needed` | union of `$SCAN_JSON.projects[].env_vars_needed` |
 | `has_ui_automation` | `("argent" ∈ existing_mcps) OR ("playwright" ∈ existing_mcps) OR ("playwright_mcp" ∈ existing_mcps)` |
-| `services_to_install` | derived in Phase 2 — services chosen but not in existing_mcps |
-| `reviewers_with_no_pr_history` | computed in Phase 3 — handles with 0 reviews on user's PRs |
-| `gh_repo` | shorthand: `$ANSWERS_JSON.gh_repo.visibility` when used in `in [private, public]` context |
+| `services_to_install` | Computed at end of Phase 2 (Q2.1), BEFORE evaluating Q2.2's depends_on. Formula: `($ANSWERS_JSON.services_chosen // []) - ($SCAN_JSON.existing_mcps // [])` — list subtraction. Write back to `$ANSWERS_JSON.services_to_install` via `jq` so depends_on sees it. Empty array OK (Q2.2 will skip cleanly). |
+| `write_capable_tools_detected` | Computed at end of Phase 2 (after Q2.3), BEFORE evaluating Q2.4's depends_on. Formula: intersect `$SCAN_JSON.existing_mcps` with the hard-coded write-tool catalog (slack: send_message/send_message_draft/add_reaction/schedule_message/create_*/update_canvas; linear: save_*/create_*/delete_*; gmail: create_draft/*_label/label_*; gh CLI Bash: pr_comment/issue_comment/pr_review/issue_create/pr_close/issue_close — these are "always available if `gh` is authed"; discord/notion/drive: analogous). Each entry = `{mcp_id, tool_name, default_label}`. Write back to `$ANSWERS_JSON.write_capable_tools_detected`. Empty array OK (Q2.4 will skip cleanly). |
+| `reviewers_with_no_pr_history` | Computed at end of Phase 3 step 3.2 (after Q3.2 captures handles), BEFORE evaluating Q3.3's depends_on. For each handle in `reviewer_persona.handles[]`, run `gh search prs --reviewed-by=<handle> --author=@me --limit=5` and check if non-empty; if empty, append to this list. Write back to `$ANSWERS_JSON.reviewers_with_no_pr_history`. Empty array OK (Q3.3 will skip cleanly — handles all had reviews). |
+| `gh_repo` | `$ANSWERS_JSON.gh_repo` (raw select value: `"private" | "public" | "none" | "later"`). Used in `gh_repo in [private, public]` truth tests for Q8.1 + Q10.3. NOT an object — wizard collects the visibility-or-skip choice flat. Phase-10 derives display-name + secrets-flag separately into `$ANSWERS_JSON.gh_repo_full` (Group E). |
 | `phase10_confirm` | answer to Q10.1 |
 | `patch_delivery` | `$ANSWERS_JSON.patch_delivery` (the array) |
 | `output_channels` | `$ANSWERS_JSON.output_channels` (the array) |

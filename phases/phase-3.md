@@ -18,6 +18,18 @@ Free text list of GH handles. For each:
 
 Persist `.reviewer_persona.reviewers = [{handle, review_count, found}]`.
 
+**REQUIRED post-Q3.2 derivation step** (must run BEFORE evaluating Q3.3's `depends_on: ... AND len(reviewers_with_no_pr_history) > 0`):
+
+```bash
+jq '
+  .reviewers_with_no_pr_history = [
+    .reviewer_persona.reviewers[]? | select(.review_count == 0) | .handle
+  ]
+' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+```
+
+Empty array → Q3.3 skips cleanly (all reviewers had reviews). Non-empty → Q3.3 fires once per missing-history handle.
+
 ### Q3.3 — Source if no PR history (loop per "0 reviews" person)
 Standard. If they pick "Slack DMs" and Slack isn't connected, gracefully degrade to other options.
 

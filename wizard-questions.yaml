@@ -625,7 +625,7 @@ questions:
   type: single-select
   tier_filter:
   - full
-  depends_on: gh_repo.visibility in [private, public]
+  depends_on: gh_repo in [private, public]
   header: Self-improvement
   text: 'Want me to grade my own runs and propose tweaks to my own setup? (PRs land in my night-shift-agent repo, not your project.)
 
@@ -730,7 +730,7 @@ questions:
   type: single-select
   tier_filter:
   - full
-  depends_on: phase10_confirm == create AND gh_repo.visibility in [private, public]
+  depends_on: phase10_confirm == create AND gh_repo in [private, public]
   header: Push to GitHub
   text: 'Push my initial setup to your GitHub repo now?
 

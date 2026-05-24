@@ -23,6 +23,19 @@ Build the service map and present per the yaml's q2_1 entry. Multi-select skip l
 
 Also include the special "Your own Claude Code session history" option (no install needed, just a permission flag). If user wants this, set `.read_cc_history = true`.
 
+**REQUIRED post-Q2.1 derivation step** (must run BEFORE evaluating Q2.2's `depends_on: len(services_to_install) > 0`):
+
+```bash
+# After Q2.1 answers persisted to $ANSWERS_JSON:
+jq --argjson existing "$(jq '.existing_mcps // []' "$SCAN_JSON")" '
+  .services_to_install = (
+    ((.services_chosen // []) - $existing) | unique
+  )
+' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+```
+
+If `services_to_install` is empty after this, Q2.2 skips cleanly. If non-empty, the loop fires.
+
 ### Q2.2 — Install missing services (loop per missing)
 
 For each missing service the user wants:
@@ -60,6 +73,45 @@ In Minimal tier: skip Q2.3 entirely. Default narrowing: assignee=me, my DMs only
 - GitHub (via gh CLI): `gh issue comment`, `gh pr comment`, `gh pr review`, `gh issue create`, `gh issue close`, `gh pr close`
 - Gmail: `create_draft`, `create_label`, `delete_label`, `update_label`, `label_*`
 - Drive / Notion / Discord / etc. — analogous CRUD detection
+
+**REQUIRED pre-Q2.4 derivation step** (must run BEFORE evaluating Q2.4's `depends_on: len(write_capable_tools_detected) > 0`):
+
+```bash
+# Hard-coded catalog of write tools per known MCP. Crossed with $SCAN_JSON.existing_mcps.
+# Each entry: {mcp, tool, label} so wizard can render checklist labels later.
+jq --argjson catalog '[
+  {"mcp":"slack","tool":"slack_send_message","label":"Slack: send message"},
+  {"mcp":"slack","tool":"slack_send_message_draft","label":"Slack: send message-draft"},
+  {"mcp":"slack","tool":"slack_add_reaction","label":"Slack: add emoji reaction"},
+  {"mcp":"slack","tool":"slack_schedule_message","label":"Slack: schedule message"},
+  {"mcp":"slack","tool":"slack_update_canvas","label":"Slack: update canvas"},
+  {"mcp":"slack","tool":"slack_create_canvas","label":"Slack: create canvas"},
+  {"mcp":"slack","tool":"slack_create_conversation","label":"Slack: create conversation"},
+  {"mcp":"linear","tool":"save_issue","label":"Linear: create/update issue"},
+  {"mcp":"linear","tool":"save_comment","label":"Linear: comment on issue"},
+  {"mcp":"linear","tool":"save_status_update","label":"Linear: status update"},
+  {"mcp":"linear","tool":"save_document","label":"Linear: save document"},
+  {"mcp":"linear","tool":"create_attachment","label":"Linear: create attachment"},
+  {"mcp":"linear","tool":"delete_comment","label":"Linear: delete comment"},
+  {"mcp":"gmail","tool":"create_draft","label":"Gmail: create draft"},
+  {"mcp":"gmail","tool":"create_label","label":"Gmail: create label"},
+  {"mcp":"gmail","tool":"label_message","label":"Gmail: label message"},
+  {"mcp":"gmail","tool":"label_thread","label":"Gmail: label thread"}
+]' --argjson existing "$(jq '.existing_mcps // []' "$SCAN_JSON")" '
+  .write_capable_tools_detected = [
+    $catalog[] | select(.mcp as $m | $existing | index($m))
+  ]
+  # gh CLI write commands are always available if gh is authed — add them too:
+  + (if ($existing | index("github")) then [
+      {"mcp":"gh","tool":"pr_comment","label":"GitHub: comment on PR"},
+      {"mcp":"gh","tool":"issue_comment","label":"GitHub: comment on issue"},
+      {"mcp":"gh","tool":"pr_review","label":"GitHub: post PR review"},
+      {"mcp":"gh","tool":"issue_create","label":"GitHub: create issue"},
+      {"mcp":"gh","tool":"pr_close","label":"GitHub: close PR"},
+      {"mcp":"gh","tool":"issue_close","label":"GitHub: close issue"}
+    ] else [] end)
+' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+```
 
 **Conditional:** skip Q2.4 entirely if `len(write_capable_tools_detected) == 0` (none of the connected MCPs expose write surfaces).
 
