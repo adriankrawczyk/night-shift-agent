@@ -100,8 +100,19 @@ start_heartbeat_writer() {
         echo "[$(date -u +%FT%TZ)] parent gone, exit" >&2
         exit 0
       fi
-      # Touch heartbeat file (or write to coord store)
+      # Touch local heartbeat file
       date -u +%FT%TZ > "$LOG_DIR/last-heartbeat.txt"
+
+      # Optionally push to coord gist (multi-machine mode — gated by env var
+      # set by run.sh when execution_mode == "both"). Lets the OTHER mode
+      # see liveness via gh gist view. Failures non-fatal (don't kill the
+      # heartbeat loop if a single gh call hiccups).
+      if [[ -n "${COORD_GIST_ID:-}" ]] && command -v gh >/dev/null 2>&1; then
+        HB_NOW="$(date -u +%FT%TZ)"
+        printf '{"last_heartbeat_utc":"%s","by_mode":"%s","pid":%s}' \
+          "$HB_NOW" "${NIGHT_SHIFT_MODE:-local}" "$parent_pid" \
+          | gh gist edit "$COORD_GIST_ID" -f heartbeat.json - 2>/dev/null || true
+      fi
     done
   ) &
   echo $! > "$HEARTBEAT_PID_FILE"
