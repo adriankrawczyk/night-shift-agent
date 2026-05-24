@@ -15,8 +15,8 @@ Each pattern has:
 **What:** prevent two copies of the agent from running concurrently.
 
 ```bash
-# Atomic lock via mkdir (POSIX-atomic across filesystems). Not flock — that's
-# Linux-specific; not lockfile — non-atomic. PID stored inside for stale detection.
+# Atomic lock via mkdir (POSIX-atomic across filesystems). Not flock (not on
+# macOS by default) and not lockfile (non-atomic). PID stored inside for stale detection.
 LOCK_DIR="$ROUTINE_DIR/.lock"
 LOCK_PID_FILE="$LOCK_DIR/pid"
 
@@ -373,8 +373,6 @@ if ! network_probe; then
   fi
 fi
 ```
-
-**Linux equivalent (planned v0.2):** use `nmcli radio wifi off / on` + `nmcli connection up <name>`.
 
 ---
 
@@ -754,11 +752,10 @@ while IFS= read -r line; do
 done < <(some_command)
 ```
 
-### G4. macOS `date -j -u -f` vs GNU `date -d`
+### G4. macOS BSD `date -j -u -f`
 ```bash
 # macOS BSD date — use:  date -j -u -f "%Y-%m-%d" "$value" +%s
-# Linux GNU date — use:  date -d "$value" +%s
-# Detect once via `date --version 2>&1 | grep -q GNU` and dispatch.
+# GNU `date -d "$value" +%s` is NOT available on stock macOS; don't use it.
 ```
 
 ### G5. Don't export GITHUB_TOKEN globally

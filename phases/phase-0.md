@@ -182,12 +182,8 @@ This is the source of truth for what's available to the night-shift agent at run
 
 **Secondary source — Claude Desktop app config (separate, less common for night-shift users):**
 ```bash
-# macOS
 CFG_MAC="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 [ -f "$CFG_MAC" ] && jq '.mcpServers | keys' "$CFG_MAC" 2>/dev/null
-# Linux
-CFG_LINUX="$HOME/.config/Claude/claude_desktop_config.json"
-[ -f "$CFG_LINUX" ] && jq '.mcpServers | keys' "$CFG_LINUX" 2>/dev/null
 ```
 
 If a user has Claude Desktop MCPs that ARE NOT in `claude mcp list`, they're not available to the night-shift agent (which uses Claude Code CLI). Note this discrepancy if observed.
@@ -220,11 +216,8 @@ Persist as `.network = {github: true, anthropic: true}`.
 
 **Existing scheduled jobs (collision detection):**
 ```bash
-# macOS
 ls ~/Library/LaunchAgents/ 2>/dev/null | grep -E 'night|shift|agent'
-# Linux
-systemctl --user list-timers 2>/dev/null | grep -E 'night|shift|agent'
-# Cron
+# Cron (rare on modern macOS, but check):
 crontab -l 2>/dev/null | grep -E 'night|shift|agent'
 ```
 

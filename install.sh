@@ -12,6 +12,13 @@
 
 set -euo pipefail
 
+# === Platform gate ===
+if [ "$(uname -s)" != "Darwin" ]; then
+  printf '\033[31mNight Shift Agent v0.1 requires macOS.\033[0m\n' >&2
+  printf 'The installer uses launchd, caffeinate, networksetup, plutil, osascript, and SwiftBar — all macOS-specific.\n' >&2
+  exit 1
+fi
+
 # === Config ===
 REPO_URL="${NIGHT_SHIFT_REPO_URL:-https://github.com/adriankrawczyk/night-shift-agent}"
 INSTALLER_DIR="${NIGHT_SHIFT_INSTALLER_DIR:-$HOME/.night-shift-installer}"
@@ -50,10 +57,10 @@ if [ ${#missing[@]} -gt 0 ]; then
   c_red "Missing required tools: ${missing[*]}"
   echo ""
   case " ${missing[*]} " in
-    *" git "*)    echo "  git:    install via Xcode CLT (mac) or 'apt install git' (linux)" ;;
+    *" git "*)    echo "  git:    install via Xcode CLT (xcode-select --install)" ;;
   esac
   case " ${missing[*]} " in
-    *" jq "*)     echo "  jq:     brew install jq  (mac)  |  sudo apt install jq  (linux)" ;;
+    *" jq "*)     echo "  jq:     brew install jq" ;;
   esac
   case " ${missing[*]} " in
     *" claude "*) echo "  claude: install Claude Code — https://docs.claude.com/en/docs/claude-code/quickstart" ;;

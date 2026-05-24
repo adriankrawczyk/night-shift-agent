@@ -1,7 +1,6 @@
 ## PHASE 9 — Dashboard
 
-### Q9.1 — SwiftBar widget (macOS only)
-Skip on Linux/other.
+### Q9.1 — SwiftBar widget
 
 Standard. Persist `.dashboard.enabled = bool`.
 

@@ -57,9 +57,7 @@ By tier, total question count: **Minimal ~15**, **Full ~30** (skip-on-default re
 
 ## Platform support
 
-- **macOS** — full support (launchd, caffeinate, networksetup wifi recovery, SwiftBar dashboard)
-- **Linux** — planned for v0.2 (systemd, nmcli, notify-send, journalctl)
-- **Windows** — under consideration
+**macOS only.** The installer uses launchd, caffeinate, networksetup, plutil, osascript, and SwiftBar — all macOS-specific. Linux/Windows are not supported.
 
 ## Cost
 

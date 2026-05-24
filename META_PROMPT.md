@@ -115,22 +115,19 @@ jq --arg n "$SYS_USER_NAME" --arg h "$SYS_USER_HOME" \
 
 These fields are referenced by templates as top-level variables: `{{ user_name }}`, `{{ user_home }}`, `{{ user_email }}`, `{{ user_short }}`, `{{ generated_at }}`, `{{ installer_version }}`, `{{ installer_commit }}` — when rendering, pull from `.system.*`. The version + commit get stamped into every generated artifact's header for traceability.
 
-Use `jq` to read/write. When persisting `os`, translate `uname -s` raw output to user-friendly canonical names — depends_on across yaml uses `os == macOS` / `os == linux`, NOT raw kernel names:
+Use `jq` to read/write. Persist `os` as the canonical `"macOS"` (the installer gates on Darwin in `install.sh`; if Phase 0 ever runs without that gate, abort here):
 ```bash
-# Translate uname -s → canonical: Darwin → macOS, Linux → linux, MINGW*/CYGWIN* → windows
 OS_RAW="$(uname -s)"
-case "$OS_RAW" in
-  Darwin)            OS_CANON="macOS" ;;
-  Linux)             OS_CANON="linux" ;;
-  MINGW*|CYGWIN*|MSYS*) OS_CANON="windows" ;;
-  *)                 OS_CANON="$OS_RAW" ;;
-esac
-jq --arg os "$OS_CANON" '.os = $os' "$SCAN_JSON" > "$SCAN_JSON.tmp" && mv "$SCAN_JSON.tmp" "$SCAN_JSON"
+if [ "$OS_RAW" != "Darwin" ]; then
+  echo "FATAL: Night Shift Agent v0.1 is macOS-only (saw '$OS_RAW')." >&2
+  exit 1
+fi
+jq '.os = "macOS"' "$SCAN_JSON" > "$SCAN_JSON.tmp" && mv "$SCAN_JSON.tmp" "$SCAN_JSON"
 ```
 
 If `jq` is not installed, the wizard cannot proceed. Tell the user:
 ```
-You need `jq` installed. Run: brew install jq  (macOS) or sudo apt install jq (Linux).
+You need `jq` installed. Run: brew install jq
 Re-run the wizard after.
 ```
 

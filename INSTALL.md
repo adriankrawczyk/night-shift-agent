@@ -21,7 +21,7 @@ That's it. The wizard takes over from there — `META_PROMPT.md` contains the st
 find ~ -maxdepth 3 -name META_PROMPT.md 2>/dev/null
 ```
 
-**"jq not found"** — `brew install jq` (mac) or `sudo apt install jq` (linux).
+**"jq not found"** — `brew install jq`.
 
 **"claude not found"** — install Claude Code: https://docs.claude.com/en/docs/claude-code/quickstart
 
