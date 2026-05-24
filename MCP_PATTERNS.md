@@ -178,11 +178,19 @@ claude mcp add -s user notion -e NOTION_API_KEY=secret_xxx -- npx -y @notionhq/n
 
 ### Discord (`mcp__discord__*`)
 **Auth:** Bot token (Discord Developer Portal → Application → Bot).
-**Install:**
+**Install:** No official Discord MCP from Discord. Community options (pick one — `discord-mcp` is most widely-used as of 2026-05):
 ```bash
-claude mcp add -s user discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @discord/mcp-server
+# Option 1: community discord-mcp (markov_kernel)
+claude mcp add -s user discord -e DISCORD_BOT_TOKEN=xxx -- npx -y discord-mcp
+
+# Option 2: more tools per server (@pasympa/discord-mcp, 90+ tools)
+claude mcp add -s user discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @pasympa/discord-mcp
+
+# Option 3: @missionsquad/mcp-discord (older, lighter)
+claude mcp add -s user discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @missionsquad/mcp-discord
 ```
 **Smoke test:** list guilds (servers).
+**Note:** verify the latest community package + scope at install time — Discord MCP ecosystem still settling. Run `npm search "discord mcp"` to see current options.
 
 ### Jira (`mcp__jira__*`)
 **Auth:** API token + email + host.
