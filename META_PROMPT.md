@@ -185,12 +185,16 @@ Each `depends_on` is a single-line expression. The wizard evaluates it against a
 | `execution_mode` | `$ANSWERS_JSON.execution_mode` |
 
 Supported operators in `depends_on`:
-- `==`, `!=` — equality
-- `in [A, B]` — list membership (RHS is a literal list)
-- `'X' in identifier` — element-in-array test (LHS is a string literal)
-- `AND`, `OR`, `not` — boolean composition
-- `len(x) > N` — array length comparison
-- bare identifier (e.g., `project_touches_ui`) — truthy check
+- `==`, `!=` — equality (RHS bareword is treated as string literal — e.g. `os == macOS` matches `"macOS"`)
+- `in [A, B]` — list membership (RHS is a literal list of barewords; same string-literal coercion as `==`)
+- `'X' in identifier` — element-in-array test (LHS is a quoted string literal)
+- `AND`, `OR`, `not` — boolean composition (no parens needed for simple ANDs; for nested, group with parens: `(a == x) AND (b == y)`)
+- `len(x) > N` — array length comparison (also `<`, `>=`, `<=`, `==`)
+- bare identifier (e.g., `project_touches_ui`) — truthy check (true if defined and not false/null/empty/0)
+
+Supported helpers in `{{#if ...}}` template conditionals (these are NOT used in depends_on — depends_on uses the operators above):
+- `(eq A "B")` — subexpression equality
+- `recipe_includes "X"` — true if `"X"` is in the `recipes` array (where `recipes` is `$ANSWERS_JSON.recipes`); used in templates/prompt.md.template, run.sh.template — exact form must be `{{#if recipe_includes "<id>"}}`. Implementation in tests/render.py line 67-74; engine must implement equivalent.
 
 If a depends_on references an identifier that isn't in the unified namespace, treat it as false (the dependent question gets skipped — fail-safe).
 

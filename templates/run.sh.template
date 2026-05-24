@@ -220,12 +220,27 @@ mobile_preflight() {
     emit_json info mobile_preflight_sim_already_booted count="$booted"
   fi
 
-  # Metro — start if not already on 8081 (assumes project uses default Metro port)
+  # Metro — start if not already on 8081 (assumes default Metro port).
+  # Detect project type → pick start command. Skip if no recognised mobile project.
   if ! lsof -i :8081 -sTCP:LISTEN >/dev/null 2>&1; then
-    log_both "Starting Metro bundler (project: $USER_REPO)"
+    if ! command -v npx >/dev/null 2>&1; then
+      emit_json warn mobile_preflight_no_npx
+      return 0
+    fi
+    local start_cmd=""
+    if [[ -f "$USER_REPO/app.json" ]] || [[ -f "$USER_REPO/app.config.js" ]] || [[ -f "$USER_REPO/app.config.ts" ]]; then
+      start_cmd="npx expo start --no-dev --minify"
+    elif [[ -f "$USER_REPO/metro.config.js" ]] || [[ -f "$USER_REPO/metro.config.ts" ]] || ([[ -f "$USER_REPO/package.json" ]] && grep -q '"react-native"' "$USER_REPO/package.json" 2>/dev/null); then
+      start_cmd="npx react-native start"
+    else
+      emit_json info mobile_preflight_metro_skipped reason="no_expo_or_rn_detected"
+      return 0
+    fi
+    log_both "Starting Metro bundler ($start_cmd, project: $USER_REPO)"
     # Spawn detached, log to its own file. Agent may stop/restart as needed.
-    (cd "$USER_REPO" && (npx expo start --no-dev --minify >"$RUNTIME_DIR/metro.log" 2>&1 &) &)
-    emit_json info mobile_preflight_metro_starting log="$RUNTIME_DIR/metro.log"
+    # shellcheck disable=SC2086
+    (cd "$USER_REPO" && (eval "$start_cmd" >"$RUNTIME_DIR/metro.log" 2>&1 &) &)
+    emit_json info mobile_preflight_metro_starting log="$RUNTIME_DIR/metro.log" cmd="$start_cmd"
   else
     emit_json info mobile_preflight_metro_already_up
   fi

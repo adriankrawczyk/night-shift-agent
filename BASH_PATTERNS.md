@@ -407,6 +407,8 @@ ub_snapshot() {
   local id="$1"
   local stash_msg
   stash_msg="night-shift-snap-${id}-$(date -u +%FT%TZ)"
+  # Record current branch BEFORE we stash, so ub_restore can return here
+  git -C "$USER_REPO" branch --show-current > "$ROUTINE_DIR/.active-branch" 2>/dev/null
   git -C "$USER_REPO" stash push --include-untracked --quiet -m "$stash_msg"
   echo "$stash_msg" > "$ROUTINE_DIR/.active-snapshot"
 }

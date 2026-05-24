@@ -281,8 +281,10 @@ Loop per recipe in your priority order. For each:
 
 === STEP 4 — Build the brief ===
 
-Compose the morning brief per these length targets:
-- `lean` ({{ brief_length }}): ~30-50 lines executive summary + clear next-step CTAs
+Compose the morning brief per the user's chosen length tier: **{{ brief_length }}**.
+
+Length targets per tier:
+- `lean`: ~30-50 lines executive summary + clear next-step CTAs
 - `medium`: ~200-400 lines, sections per topic
 - `deep`: full reasoning, evidence quotes, every patch explained
 

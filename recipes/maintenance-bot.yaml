@@ -29,10 +29,13 @@ gather_steps:
       - Commented-out code blocks present for >30d
 
   bash_pattern: |
-    # Stale branches (git is universal)
+    # Stale branches (git is universal). Use git's own date math via committerdate:unix
+    # — portable across macOS BSD awk and GNU awk (the previous mktime/systime
+    # approach was gawk-only and silently produced empty output on macOS).
+    NOW=$(date +%s)
     git for-each-ref --sort=committerdate refs/heads/ \
-      --format='%(refname:short)|%(committerdate:short)|%(committerdate:relative)' | \
-      awk -F'|' '{ split($2,d,"-"); now=systime(); ts=mktime(d[1]" "d[2]" "d[3]" 0 0 0"); age=(now-ts)/86400; if(age>30) print }'
+      --format='%(refname:short)|%(committerdate:unix)|%(committerdate:relative)' | \
+      awk -F'|' -v now="$NOW" '{ age_days=(now-$2)/86400; if(age_days>30) print $1 " | " $3 " (" int(age_days) "d)" }'
 
     # Dep audit — detect package manager from lockfile, run matching tool.
     # Skip silently if no lockfile or tool not installed.
