@@ -8,6 +8,14 @@ set -uo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export GIT_OPTIONAL_LOCKS=0
 
+# Dependency check — meta-agent needs jq + gh + claude
+for tool in jq gh claude; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "meta-agent: ERROR: '$tool' not in PATH — aborting (install with brew/curl)" >&2
+    exit 1
+  fi
+done
+
 ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
 # shellcheck disable=SC2034  # RUNS_DIR used by meta-prompt.md via env
 RUNS_DIR="$ROUTINE_DIR/runs"

@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# predictive-skip.sh — fires 5 min before the main routine. Checks if tomorrow's
+# predictive-skip.sh — fires ~1 hour before the main routine. Checks if today's
 # brief was already shipped (rare edge case — user manually triggered earlier).
 # If so, writes a skip flag the main run.sh reads at startup, turning a 30-min
 # run into a 2-second exit.

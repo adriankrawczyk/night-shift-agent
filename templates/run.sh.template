@@ -38,8 +38,8 @@ USER_REPO="${USER_REPO_0}"
 
 PROMPT="$ROUTINE_DIR/prompt.md"
 SETTINGS="$ROUTINE_DIR/settings.json"
-LOCK_DIR="$ROUTINE_DIR/.lock"
-LOCK_PID_FILE="$LOCK_DIR/pid"
+# NB: LOCK_DIR + LOCK_PID_FILE are defined inside pattern.P1 below — don't
+# duplicate the assignment here (the awk extractor pulls P1's full body).
 
 # === Pattern P2: PATH setup BEFORE any tool lookup ===
 {{ pattern.P2 }}

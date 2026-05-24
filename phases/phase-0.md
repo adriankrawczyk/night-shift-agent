@@ -36,20 +36,35 @@ For each project in the projects array, run a deep scan. Use parallel `Bash` cal
 
 **Stack detection** — check for these files in order, first match wins:
 ```
-package.json    → node/ts (check for: react-native, next, vue, angular, electron)
+package.json    → node/ts (check for: react-native, next, vue, angular, electron, svelte, solid, astro, remix, nuxt)
 Cargo.toml      → rust
-requirements.txt|pyproject.toml|setup.py → python
+requirements.txt|pyproject.toml|setup.py|Pipfile → python (check for: django, flask, fastapi, pytest)
 go.mod          → go
-Gemfile         → ruby
-composer.json   → php
-mix.exs         → elixir
+Gemfile         → ruby (check for: rails, sinatra)
+composer.json   → php (check for: laravel, symfony)
+mix.exs         → elixir (check for: phoenix in deps)
 deno.json|deno.jsonc → deno
-pom.xml|build.gradle → java/kotlin
-*.csproj|*.sln  → .NET
+pom.xml|build.gradle|build.gradle.kts → java/kotlin (check for: spring-boot)
+*.csproj|*.sln  → .NET (check for: AspNetCore)
 Package.swift   → swift
+*.cabal|stack.yaml|package.yaml → haskell
+build.zig       → zig
+shard.yml       → crystal
+dune-project|*.opam → ocaml
+build.sbt       → scala
+Project.toml    → julia
+flake.nix|default.nix → nix (check for: nodejs/python/rust as sub-frameworks)
 ```
 
 Persist as `.projects[i].stack = "<detected>"` and `.projects[i].framework = "<sub-detection>"`.
+
+**Fallback for unknown stacks:** if none of the above match, set:
+```
+.projects[i].stack = "unknown"
+.projects[i].framework = ""
+.projects[i].verify_methods = []
+```
+Wizard continues — Q5.1 will prompt user for custom verify command. Don't crash. Recipes that need a known stack (e.g. maintenance-bot dep audit) will gracefully skip.
 
 **Test/lint/e2e scripts** (per stack):
 - Node: read `package.json:.scripts`, look for `test`, `lint`, `typecheck`, `e2e`. Look for `playwright`/`cypress`/`detox`/`jest` in dependencies.
