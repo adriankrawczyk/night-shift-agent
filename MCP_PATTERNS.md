@@ -149,12 +149,17 @@ claude mcp add -s user --transport http sentry https://mcp.sentry.dev/mcp
 ### Gmail (`mcp__gmail__*`)
 **Auth:** Google OAuth — easiest via Claude desktop's managed "claude.ai Gmail" connector.
 **Install (managed, recommended):** Claude desktop → Settings → Connectors → Gmail.
-**Install (self-hosted, advanced):**
+**Install (self-hosted, advanced) — no official package, pick a community one:**
 ```bash
-claude mcp add -s user gmail -- npx -y @modelcontextprotocol/server-gmail
+# Option 1: gmail-mcp (domdomegg) — most maintained
+claude mcp add -s user gmail -- npx -y gmail-mcp
+
+# Option 2: @gongrzhe/server-gmail-autoauth-mcp — auto OAuth flow
+claude mcp add -s user gmail -- npx -y @gongrzhe/server-gmail-autoauth-mcp
 ```
 (Will spin up its own OAuth callback on first run.)
 **Smoke test:** list labels or threads.
+**Note:** verify the latest community package at install time — Google has no official MCP yet.
 
 ### Google Drive (`mcp__drive__*` or `mcp__gdrive__*`)
 **Auth:** Google OAuth — managed connector recommended.
@@ -194,14 +199,23 @@ claude mcp add -s user discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @missionsquad/
 
 ### Jira (`mcp__jira__*`)
 **Auth:** API token + email + host.
-**Install:**
+**Install — no official Atlassian package, pick a community one:**
 ```bash
+# Option 1: jira-mcp (camdenclark2022) — simple, smithery-listed
 claude mcp add -s user jira \
   -e JIRA_HOST=https://acme.atlassian.net \
   -e JIRA_EMAIL=you@acme.com \
   -e JIRA_API_TOKEN=xxx \
-  -- npx -y @atlassian/jira-mcp-server
+  -- npx -y jira-mcp
+
+# Option 2: @rokealvo/jira-mcp — more features, recently updated
+claude mcp add -s user jira \
+  -e JIRA_HOST=https://acme.atlassian.net \
+  -e JIRA_EMAIL=you@acme.com \
+  -e JIRA_API_TOKEN=xxx \
+  -- npx -y @rokealvo/jira-mcp
 ```
+**Note:** Atlassian has no official MCP yet. Verify the package at install time.
 **Smoke test:** list projects.
 
 ### Figma (`mcp__figma__*`)
