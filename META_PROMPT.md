@@ -313,6 +313,30 @@ These render as human-readable joined text inside `prompt.md`. Compute by joinin
 | `write_opt_in_summary` | Human-readable comma-joined list of `$ANSWERS_JSON.write_opt_in` (e.g. `"slack:slack_add_reaction, gh:pr_comment"`). Empty string when `len(write_opt_in) == 0` — prompt.md branches on `{{#if write_opt_in_summary}}` to surface either "explicit opt-in list" or "no writes at all". |
 | `recipe_gather_steps` | a map `{recipe_id: inline_markdown_block}` used by `{{> (lookup recipe_gather_steps this) }}` partial. For each picked recipe, wizard reads `recipes/<id>.yaml`, extracts the `gather_steps.description` and `gather_steps.bash_pattern` fields, and assembles a block:<br>```\n### {recipe.name}\n\n{gather_steps.description}\n\nBash hint:\n```bash\n{gather_steps.bash_pattern}\n```\n```<br>Stored as a string in the render-ctx — the partial syntax inlines it verbatim at render time. |
 
+### Whitespace handling for control tags (CANONICAL)
+
+When a control tag (`{{#if ...}}`, `{{#each ...}}`, `{{else}}`, `{{/if}}`, `{{/each}}`) sits **alone on a line** in a template (i.e. only whitespace precedes/follows it on that line), the entire line — including its trailing newline — is **stripped** from the rendered output. This is the standard Handlebars whitespace-control convention.
+
+When a control tag is **inline** with other content on the same line, only the tag itself is replaced (no surrounding whitespace touched).
+
+Example. Template:
+```
+foo
+{{#if x}}
+bar
+{{/if}}
+baz
+```
+With `x=true` renders to:
+```
+foo
+bar
+baz
+```
+(NOT `foo\n\nbar\n\nbaz` — the lines containing the tags are removed wholesale.)
+
+This convention was validated by a real Claude vs Python-mock-renderer (`tests/render.py`) diff: Claude's natural interpretation matched standard Handlebars semantics (strip tag-only lines); the Python mock currently preserves them. The mock produces semantically-identical output but with extra blank lines — treat the mock's whitespace as a *cosmetic* upper-bound, not authoritative formatting. If clean whitespace matters for a specific template (e.g. JSON, where a trailing newline before `]` causes a parser warning), use inline tags or rely on Claude's stripping.
+
 ### Render-context assembly
 
 Before writing any template, assemble the full render-context object in one step. The wizard must populate every key referenced by templates (run the sanity check below to confirm). Naming reminders:
