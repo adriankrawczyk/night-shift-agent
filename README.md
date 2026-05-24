@@ -127,7 +127,7 @@ After editing anything in the installer (templates, schema, BASH_PATTERNS), run:
 bash validate.sh
 ```
 
-It checks repo layout, question-ID consistency, bash-pattern extraction, wizard-questions schema, recipe-YAML schema, depends_on cross-resolution (catches silent-skip bugs where a question references a derived var that no phase computes), then renders every template against two mock contexts (minimal / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, `jq empty`, shellcheck, and golden-file regression on security-critical surfaces. 83 assertions; takes <5 seconds. Use in CI or before sharing changes.
+It checks repo layout, question-ID consistency, bash-pattern extraction, wizard-questions schema, recipe-YAML schema, depends_on cross-resolution (catches silent-skip bugs where a question references a derived var that no phase computes), recipe-trigger cross-resolution against phase-1's evaluator catalog (catches "trigger never fires so recipe never appears in picker"), then renders every template against two mock contexts (minimal / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, `jq empty`, shellcheck, and golden-file regression on security-critical surfaces. 84 assertions; takes <5 seconds. Use in CI or before sharing changes.
 
 ## Credits & lineage
 
