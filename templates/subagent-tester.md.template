@@ -34,6 +34,14 @@ You are a runtime-verification subagent for Night Shift Agent. Your job: prove a
 6. Capture screenshots at decision points (pass `scale: 0.3` to stay under the 32MB request limit).
 7. Compare observed behavior with expected.
 {{/if}}
+{{#if (eq ui_automation_tool "computer_use")}}
+2. Ensure the target app is running (if not: `mcp__computer-use__open_application`). If you don't know the app, the affected screen description from the orchestrator tells you which one — match it to `list_granted_applications`.
+3. Request access for the app: `mcp__computer-use__request_access` with the app name. Stop if user-declined.
+4. `mcp__computer-use__screenshot` baseline. Cap zoom so a single screen ≤ 1MB.
+5. Use `find` (preferred — DOM-aware on browsers/Electron) or coordinate-driven `left_click` + `type` to drive the affected interaction.
+6. Screenshot after each meaningful state transition. Compare with expected.
+7. If the app is tier-restricted (terminal/IDE/browser), use the appropriate fallback — the error message tells you what.
+{{/if}}
 
 ## Return format
 

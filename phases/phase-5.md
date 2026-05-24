@@ -10,27 +10,35 @@ Show what was scanned (Phase 0). User picks A/B/C/D:
 
 Persist `.verify_methods = [{name, command, enabled}]`.
 
-### Q5.2 — UI/runtime automation (conditional)
+### Q5.2 — UI/runtime automation
 
-Trigger conditions:
-- `project_touches_ui == true` (per the refined detection in Phase 0) AND no MCP-level automation tool connected → ask
-- Otherwise skip
+**Always ask** (Minimal + Full). Skip ONLY if `has_ui_automation == true` (user already has Playwright MCP, Argent, or computer-use connected — no need to re-pick).
+
+UI automation is universal — it's not just for web/RN projects. Use cases the wizard should NOT gate out:
+- Backend service whose admin panel is a desktop Electron app (computer-use)
+- CLI tool whose verify needs Photoshop / Figma / external Mac app (computer-use)
+- Mobile app (Argent)
+- Web app (Playwright MCP)
 
 **Important distinction (GAP #13):** Playwright as a **test runner** (project has `playwright.config.js`) is DIFFERENT from Playwright **MCP** (controls a browser at agent run time). Both can coexist:
 - If project has Playwright test runner: it's already in Q5.1 verify methods, no action needed for that
-- If user wants visual verification of patches BEYOND their e2e suite (e.g., checking a screen the e2e suite doesn't cover) → install Playwright MCP
+- If user wants visual verification of patches BEYOND their e2e suite → install Playwright MCP via Q5.2
 
-Phrase Q5.2 accordingly:
-> Some of what I'd do touches UI behavior. I see you {{ have_playwright_runner ? "already use Playwright for tests — great, I'll use that for verify" : "don't have UI test automation set up yet" }}.
-> Do you want me to also drive a real browser/simulator for visual verification of UI patches?
-> (This is in ADDITION to your tests — covers cases your e2e suite might miss.)
+Phrase Q5.2:
+> To verify patches actually work in a running UI, I can drive a real browser, mobile simulator, or any desktop app. Which do you want me to set up? (Pick any combination, or none.)
 
-Options based on stack:
-- mobile (RN/native iOS/Android) → suggest Argent
-- web (React/Vue/etc with browser DOM) → suggest Playwright MCP (note: separate from the project's Playwright test runner if present)
-- both → suggest both
+Single-select (one tool per verify-loop keeps orchestration simple). Options:
+- **Argent** (iOS / Android simulator / emulator control)
+- **Playwright** (web browser automation)
+- **Claude computer-use** (any visible app on the user's Mac — Electron, native, browser-as-app; universal but slower)
+- **None** (verify with tests only)
 
-Persist `.ui_automation = "argent|playwright_mcp|both|none"`.
+Persist `.ui_automation = "argent|playwright|computer_use|none"`.
+
+**Recommendation overlay** (additive hint, not a gate — surface in option labels):
+- If scan detected a mobile project (RN / native iOS / native Android) → prefix Argent option with "(recommended for your stack)"
+- If scan detected web (React/Vue/Svelte/Angular with browser DOM) → prefix Playwright option with "(recommended for your stack)"
+- computer-use is always selectable regardless of stack — it's the universal fallback
 
 ### Q5.3 — Secrets & config
 

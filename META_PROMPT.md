@@ -212,7 +212,7 @@ This is the authoritative list of every `{{ variable }}` referenced by `template
 | `hard_wall_minutes` | Q7.3 → `$ANSWERS_JSON.hard_wall_minutes` | integer minutes |
 | `meta_agent` | Q8.1 → `$ANSWERS_JSON.meta_agent` | `auto_merge_safe|draft_only|off` (default `off` when Q8.1 not shown) |
 | `read_cc_history` | Q2.x → `$ANSWERS_JSON.read_cc_history` | bool |
-| `ui_automation_tool` | Q5.2 → `$ANSWERS_JSON.ui_automation` | `argent|playwright_mcp|both|none`. Templates use the alias `ui_automation_tool` — render-context must populate it from `.ui_automation`. |
+| `ui_automation_tool` | Q5.2 → `$ANSWERS_JSON.ui_automation` | `argent|playwright|computer_use|none`. Templates use the alias `ui_automation_tool` — render-context must populate it from `.ui_automation`. `computer_use` covers any visible desktop / Electron / browser-as-app via Claude's `mcp__computer-use__*` toolkit (no install — built into Claude.app). |
 | `reviewer_persona_handle` | Q3.2 → `$ANSWERS_JSON.reviewer_persona.reviewers[0].handle` | primary reviewer. For multi-reviewer setups templates currently model the first; PERSONA_BUILDER.md handles the rest via per-handle files. |
 
 ### Group C — Direct scan results (from $SCAN_JSON)

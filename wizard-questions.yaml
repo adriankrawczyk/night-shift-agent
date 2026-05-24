@@ -333,18 +333,6 @@ questions:
     value: deep
     description: Full reasoning, evidence quotes, every patch explained. Long but thorough.
   store_as: brief_length
-- id: q4_3b
-  phase: 4
-  type: form
-  tier_filter:
-  - full
-  depends_on: len(output_channels) > 1
-  header: Length per channel
-  text: 'Different length per channel? (For example: lean to email, deep dive in the markdown file.)
-
-    '
-  fields_source: output_channels
-  store_as: brief_length_per_channel
 - id: q5_1
   phase: 5
   type: single-select
@@ -385,24 +373,24 @@ questions:
   tier_filter:
   - minimal
   - full
-  depends_on: project_touches_ui AND not has_ui_automation
+  depends_on: not has_ui_automation
   header: UI automation
-  text: 'Some of what I''d do touches UI behavior. To check if patches actually work, I need to drive a browser or simulator. Want me to set that up?
+  text: 'To verify patches actually work in a running UI, I can drive a real browser, mobile simulator, or any visible desktop app. Pick one (you can switch later).
 
     '
   options:
-  - label: Yes — Playwright (web)
-    value: playwright
-    description: Browser automation. Good for web apps.
-  - label: Yes — Argent (mobile)
+  - label: Argent (iOS / Android simulator)
     value: argent
-    description: iOS/Android simulator control. Good for mobile apps.
-  - label: Yes — both
-    value: both
-    description: Web + mobile work.
-  - label: No, skip
+    description: Mobile simulator / emulator control. Recommended for mobile apps.
+  - label: Playwright (web browser)
+    value: playwright
+    description: Browser automation. Recommended for web apps.
+  - label: Claude computer-use (any desktop app)
+    value: computer_use
+    description: Screenshot + click on anything visible. Works on Electron, native macOS apps, browser-as-app. Universal but slower than the specialized options.
+  - label: None — verify with tests only
     value: none
-    description: Verify with tests only, no visual checks.
+    description: Skip visual verification. Tests / typecheck / lint only.
   store_as: ui_automation
 - id: q5_3
   phase: 5
