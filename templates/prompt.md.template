@@ -185,8 +185,20 @@ You're one of multiple runners (local + cloud fallback). State is mirrored to BO
 Coord key shape: `{ "date": "YYYY-MM-DD", "status": "running|completed|skipped|errored", "winner_mode": "local|remote", "brief_id": "<id>", "started_at_utc": "...", "finished_at_utc": "...", "host": "<hostname>" }`
 
 ```bash
-# Read from gist + Drive, prefer whichever is newer
-COORD_GIST_ID="{{ coord_gist_id }}"   # blank string if not configured
+# Read from gist + Drive, prefer whichever is newer.
+# coord_gist_id is created lazily by run.sh on the FIRST coord write
+# (gh gist create returns the id, which run.sh stashes at
+# $LOG_DIR/coord-gist-id.txt). The wizard does NOT pre-create the gist —
+# we want both local AND remote runners to converge on the same id, which
+# only works if whichever runs first creates it and the other reads it.
+# Template-time "{{ coord_gist_id }}" is empty by design; ignore it.
+COORD_GIST_ID_FILE="$LOG_DIR/coord-gist-id.txt"
+if [ ! -f "$COORD_GIST_ID_FILE" ]; then
+  # First run on this machine — create gist (sync from peer machine via Drive marker first if exists)
+  GIST_ID=$(gh gist create --desc "night-shift-coord-state" - <<<'{"date":"","status":"init"}' 2>/dev/null | grep -oE '[a-f0-9]{20,}' | head -1)
+  [ -n "$GIST_ID" ] && echo "$GIST_ID" > "$COORD_GIST_ID_FILE"
+fi
+COORD_GIST_ID="$(cat "$COORD_GIST_ID_FILE" 2>/dev/null)"
 [ -n "$COORD_GIST_ID" ] && gh gist view "$COORD_GIST_ID" --files coord.json
 # Drive: mcp__drive__search "your-app-coord <today>"
 ```

@@ -33,7 +33,23 @@
     <key>RunAtLoad</key>
     <false/>
 
-    <!-- Fires ~2 hours before main routine (Q7.2 time minus 2h) -->
+    <!-- Fires ~2 hours before main routine (Q7.2 time minus 2h). Honors the
+         schedule.days filter so weekend days are skipped if user picked Mon-Fri. -->
+    {{#if has_specific_days}}
+    <key>StartCalendarInterval</key>
+    <array>
+        {{#each schedule.days}}
+        <dict>
+            <key>Weekday</key>
+            <integer>{{ this }}</integer>
+            <key>Hour</key>
+            <integer>{{ ../daily_meta_hour }}</integer>
+            <key>Minute</key>
+            <integer>{{ ../daily_meta_minute }}</integer>
+        </dict>
+        {{/each}}
+    </array>
+    {{else}}
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
@@ -41,5 +57,6 @@
         <key>Minute</key>
         <integer>{{ daily_meta_minute }}</integer>
     </dict>
+    {{/if}}
 </dict>
 </plist>

@@ -129,6 +129,7 @@ fi
 
 PR_OUT=$(mktemp)
 PR_ERR=$(mktemp)
+trap 'rm -f "$PR_OUT" "$PR_ERR"' EXIT INT TERM
 gh pr create --repo "$GH_REPO" \
   --title "[meta-agent][$DECISION_CLASS] $TODAY_LOCAL: $SUMMARY" \
   --body-file <(jq -r '.report // "Meta-agent run report"' "$DECISION_FILE") \
