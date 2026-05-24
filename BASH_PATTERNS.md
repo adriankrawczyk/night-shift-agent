@@ -169,7 +169,10 @@ start_stall_watchdog() {
 
       if (( age > STALL_THRESHOLD )); then
         local claude_pid
-        claude_pid=$(pgrep -f 'claude --print.*<project-marker>' | head -1)
+        # Match by ROUTINE_DIR — every claude invocation from run.sh has
+        # --add-dir "$RUNTIME_DIR" which contains ROUTINE_DIR as prefix.
+        # No literal placeholder — substituted at template render time.
+        claude_pid=$(pgrep -f "claude --print.*$ROUTINE_DIR" | head -1)
         if [[ -n "$claude_pid" ]] && kill -0 "$claude_pid" 2>/dev/null; then
           echo "[$(date -u +%FT%TZ)] STALL: JSONL idle ${age}s — TERMing claude $claude_pid" >&2
           kill -TERM "$claude_pid" 2>/dev/null
@@ -387,8 +390,8 @@ caffeinate -dis -t 32400 &
 CAFFEINATE_PID=$!
 ```
 
-Cleanup releases:
-```bash
+Cleanup releases (caller must call this in cleanup() — extractor is intentionally `text` fenced so it does NOT get inlined alongside the start block above):
+```text
 [[ -n "${CAFFEINATE_PID:-}" ]] && kill "$CAFFEINATE_PID" 2>/dev/null || true
 ```
 

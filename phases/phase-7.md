@@ -16,6 +16,17 @@ For single-machine setups (`execution_mode != both`), skip this — coord.md is 
 ### Q7.2 — Schedule (if not on_demand)
 Days (multi-select) + time (24h format). Persist `.schedule = {days, time}`.
 
+**REQUIRED post-Q7.2 derivation step** — split `schedule.time` "HH:MM" into separate hour/minute fields so templates (launchd-routine.plist etc.) can render the integers directly:
+
+```bash
+jq '
+  .schedule.hour   = ((.schedule.time // "23:55") | split(":")[0] | tonumber)
+  | .schedule.minute = ((.schedule.time // "23:55") | split(":")[1] | tonumber)
+' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+```
+
+Without this, `launchd-routine.plist.template` renders empty `<integer></integer>` and `plutil -lint` fails.
+
 ### Q7.3 — Hard wall
 Standard. Persist `.hard_wall_minutes`.
 

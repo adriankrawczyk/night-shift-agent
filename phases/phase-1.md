@@ -41,15 +41,32 @@ failure_modes:                 # documentation — known edge cases
 When the wizard runs Q1.2, it only reads `id` / `name` / `description` / `triggers` / `required_services` / `helpful_services` for the picker UI. The rest is read by the rendered agent at run time via `<install>/recipes/<id>.yaml` (the wizard copies the picked recipe files verbatim).
 
 For each recipe, evaluate its `triggers` against `$SCAN_JSON`:
-- "has_open_prs_with_reviews" → check `.projects[].user_open_prs[].reviews | length > 0`
-- "has_draft_prs" → check `.projects[].user_open_prs[].isDraft == true`
-- "has_sentry" → check `"sentry"` in `.existing_mcps`
-- "has_linear" → check `"linear"` in `.existing_mcps`
-- "has_test_config" → check `.projects[].verify_methods | length > 0`
-- "has_stale_branches" → check `.projects[].stale_branches_count > 5`
-- "user_mentioned:bug" → check Q1.1 free text contains "bug", "error", "crash" (case-insensitive)
-- "user_mentioned:review" → check Q1.1 contains "review", "PR", "feedback"
-- etc.
+
+**`has_*` triggers (scan-derived) — full catalog:**
+- `has_open_prs_with_reviews` → `.projects[].user_open_prs[].reviews | length > 0`
+- `has_open_non_draft_prs_without_recent_reviews` → `.projects[].user_open_prs[] | select(.isDraft == false) | select(.reviews | length == 0 or (.reviews | sort_by(.submittedAt) | last.submittedAt < .updatedAt))`
+- `has_open_gh_issues` → `.projects[].open_gh_issues_count > 0`
+- `has_draft_prs` → `.projects[].user_open_prs[].isDraft == true`
+- `has_sentry` → `"sentry"` in `.existing_mcps`
+- `has_linear` → `"linear"` in `.existing_mcps`
+- `has_slack` → `"slack"` in `.existing_mcps`
+- `has_test_config` → `.projects[].verify_methods[] | .name == "test"` (any project)
+- `has_lint_config` → `.projects[].verify_methods[] | .name == "lint"`
+- `has_typecheck_config` → `.projects[].verify_methods[] | .name == "typecheck"`
+- `has_stale_branches` → `.projects[].stale_branches_count > 5`
+- `reviewer_persona_enabled` → evaluated POST-Phase-3 (Phase 1 runs before Phase 3, so for picker purposes treat as ALWAYS TRUE; if user later disables in Phase 3, the rendered subagent-reviewer.md is skipped but the recipe still ships with a note "needs reviewer persona — re-enable or skip")
+
+**`user_mentioned:<keyword>` triggers (free-text match against Q1.1):**
+- Literal keyword after the colon is matched case-insensitively as a substring against `q1_1_freeform`
+- Plus small synonym table for common buckets:
+  - `bug` ⊃ {"error", "crash", "broken", "regression", "bug-fix"}
+  - `review` ⊃ {"PR", "feedback", "code review", "review comments"}
+  - `clean` ⊃ {"tidy", "refactor", "cleanup"}
+  - `deps` ⊃ {"dependency", "outdated", "upgrade"}
+  - `finish` ⊃ {"complete", "done", "wrap up"}
+- All other `user_mentioned:X` triggers are pure literal substring match (e.g. `user_mentioned:WIP` matches "WIP" / "wip" / "Wip" in q1_1_freeform)
+
+**Unrecognized `has_*` triggers** evaluate to FALSE by default. To add a new trigger, register it in the catalog above first, then reference it in a recipe.
 
 Only show recipes where at least one trigger fires, with the triggering evidence quoted (real numbers from scan).
 

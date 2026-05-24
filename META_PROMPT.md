@@ -115,9 +115,17 @@ jq --arg n "$SYS_USER_NAME" --arg h "$SYS_USER_HOME" \
 
 These fields are referenced by templates as top-level variables: `{{ user_name }}`, `{{ user_home }}`, `{{ user_email }}`, `{{ user_short }}`, `{{ generated_at }}`, `{{ installer_version }}`, `{{ installer_commit }}` — when rendering, pull from `.system.*`. The version + commit get stamped into every generated artifact's header for traceability.
 
-Use `jq` to read/write:
+Use `jq` to read/write. When persisting `os`, translate `uname -s` raw output to user-friendly canonical names — depends_on across yaml uses `os == macOS` / `os == linux`, NOT raw kernel names:
 ```bash
-jq '.os = "macOS"' "$SCAN_JSON" > "$SCAN_JSON.tmp" && mv "$SCAN_JSON.tmp" "$SCAN_JSON"
+# Translate uname -s → canonical: Darwin → macOS, Linux → linux, MINGW*/CYGWIN* → windows
+OS_RAW="$(uname -s)"
+case "$OS_RAW" in
+  Darwin)            OS_CANON="macOS" ;;
+  Linux)             OS_CANON="linux" ;;
+  MINGW*|CYGWIN*|MSYS*) OS_CANON="windows" ;;
+  *)                 OS_CANON="$OS_RAW" ;;
+esac
+jq --arg os "$OS_CANON" '.os = $os' "$SCAN_JSON" > "$SCAN_JSON.tmp" && mv "$SCAN_JSON.tmp" "$SCAN_JSON"
 ```
 
 If `jq` is not installed, the wizard cannot proceed. Tell the user:
@@ -222,8 +230,8 @@ This is the authoritative list of every `{{ variable }}` referenced by `template
 |---|---|---|
 | `projects` | `$SCAN_JSON.projects` | array — each element has `path`, `name`, `stack`, `github.{owner,name}`, `verify_methods`, `has_login_flow` |
 | `schedule.days` | derived from Q7.2 user answer parsed into `$ANSWERS_JSON.schedule.days` | array of weekday integers per wizard-questions.yaml: Mon=1, Tue=2, …, Sat=6, Sun=0. macOS launchd `Weekday` accepts both 0 and 7 for Sunday, so 0 is correct. Empty array if `on_demand`. |
-| `schedule.hour` | derived (see Group D) | 0-23 |
-| `schedule.minute` | derived (see Group D) | 0-59 |
+| `schedule.hour` | derived: `parseInt(($ANSWERS_JSON.schedule.time // "23:55").split(":")[0])` | 0-23 |
+| `schedule.minute` | derived: `parseInt(($ANSWERS_JSON.schedule.time // "23:55").split(":")[1])` | 0-59 |
 | `existing_mcps_allowed` | `$SCAN_JSON.existing_mcps` filtered through Q2.3 narrowing | list of MCP server names |
 | `recipes` | `$ANSWERS_JSON.recipes` | array of recipe IDs e.g., `["pr_responder", "bug_triager"]` |
 | `output_channels` | `$ANSWERS_JSON.output_channels` | array of channel IDs |

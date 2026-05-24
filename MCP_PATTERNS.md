@@ -27,14 +27,14 @@ Options:
 
 1. **HTTP (modern, most managed services)**:
    ```bash
-   claude mcp add --transport http <name> <url>
-   # Example: claude mcp add --transport http sentry https://mcp.sentry.dev/mcp
+   claude mcp add -s user --transport http <name> <url>
+   # Example: claude mcp add -s user --transport http sentry https://mcp.sentry.dev/mcp
    ```
 
 2. **stdio with env vars (older / self-hosted)** — `<name>` MUST come before any `-e` flags:
    ```bash
-   claude mcp add <name> -e KEY1=val1 -e KEY2=val2 -- <command> [args...]
-   # Example: claude mcp add github -e GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
+   claude mcp add -s user <name> -e KEY1=val1 -e KEY2=val2 -- <command> [args...]
+   # Example: claude mcp add -s user github -e GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
    ```
    **Why the order matters:** `-e` is declared as variadic in the CLI (commander.js `<env...>`),
    so if you put `-e KEY=v` *before* `<name>`, commander greedily consumes `<name>` as another env value
@@ -44,8 +44,8 @@ Options:
 
 3. **stdio with no env (local binary)**:
    ```bash
-   claude mcp add <name> -- <command> [args...]
-   # Example: claude mcp add argent -- argent mcp
+   claude mcp add -s user <name> -- <command> [args...]
+   # Example: claude mcp add -s user argent -- argent mcp
    ```
 
 The `--` separator is mandatory before the command for stdio servers — it tells the CLI that what follows is the command + its args, not more `claude mcp add` options.
@@ -113,7 +113,7 @@ Note: many modern managed services have HTTP endpoints with built-in OAuth — n
 **Auth:** Personal access token (or `gh` CLI keychain if MCP supports it).
 **Install:**
 ```bash
-claude mcp add github -e GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
+claude mcp add -s user github -e GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
 ```
 **Smoke test:** `mcp__github__get_repository` on any public repo.
 
@@ -122,7 +122,7 @@ claude mcp add github -e GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelco
 **Install (managed, recommended):** Open Claude desktop → Settings → Connectors → enable Slack.
 **Install (self-hosted, advanced):**
 ```bash
-claude mcp add slack -e SLACK_BOT_TOKEN=xoxb-xxx -e SLACK_TEAM_ID=Txxx -- npx -y @modelcontextprotocol/server-slack
+claude mcp add -s user slack -e SLACK_BOT_TOKEN=xoxb-xxx -e SLACK_TEAM_ID=Txxx -- npx -y @modelcontextprotocol/server-slack
 ```
 **Smoke test:** `mcp__slack__slack_search_public` with a basic query.
 **Scoping units:** channels, DMs, users.
@@ -131,7 +131,7 @@ claude mcp add slack -e SLACK_BOT_TOKEN=xoxb-xxx -e SLACK_TEAM_ID=Txxx -- npx -y
 **Auth:** Built-in OAuth (HTTP transport — no token paste).
 **Install:**
 ```bash
-claude mcp add --transport http linear https://mcp.linear.app/mcp
+claude mcp add -s user --transport http linear https://mcp.linear.app/mcp
 ```
 First tool call triggers OAuth in browser.
 **Smoke test:** `mcp__linear__list_teams`.
@@ -141,7 +141,7 @@ First tool call triggers OAuth in browser.
 **Auth:** Built-in OAuth (HTTP).
 **Install:**
 ```bash
-claude mcp add --transport http sentry https://mcp.sentry.dev/mcp
+claude mcp add -s user --transport http sentry https://mcp.sentry.dev/mcp
 ```
 **Smoke test:** `mcp__sentry__find_organizations`.
 **Scoping units:** organizations, projects, environments.
@@ -151,7 +151,7 @@ claude mcp add --transport http sentry https://mcp.sentry.dev/mcp
 **Install (managed, recommended):** Claude desktop → Settings → Connectors → Gmail.
 **Install (self-hosted, advanced):**
 ```bash
-claude mcp add gmail -- npx -y @modelcontextprotocol/server-gmail
+claude mcp add -s user gmail -- npx -y @modelcontextprotocol/server-gmail
 ```
 (Will spin up its own OAuth callback on first run.)
 **Smoke test:** list labels or threads.
@@ -161,7 +161,7 @@ claude mcp add gmail -- npx -y @modelcontextprotocol/server-gmail
 **Install (managed, recommended):** Claude desktop → Settings → Connectors → Google Drive.
 **Install (self-hosted, advanced):**
 ```bash
-claude mcp add gdrive -- npx -y @modelcontextprotocol/server-gdrive
+claude mcp add -s user gdrive -- npx -y @modelcontextprotocol/server-gdrive
 ```
 **Smoke test:** Drive search for a known file.
 
@@ -172,7 +172,7 @@ claude mcp add gdrive -- npx -y @modelcontextprotocol/server-gdrive
 **Auth:** Integration token (Notion → Settings → Integrations → New).
 **Install:**
 ```bash
-claude mcp add notion -e NOTION_API_KEY=secret_xxx -- npx -y @notionhq/notion-mcp-server
+claude mcp add -s user notion -e NOTION_API_KEY=secret_xxx -- npx -y @notionhq/notion-mcp-server
 ```
 **Smoke test:** list databases / search pages.
 
@@ -180,7 +180,7 @@ claude mcp add notion -e NOTION_API_KEY=secret_xxx -- npx -y @notionhq/notion-mc
 **Auth:** Bot token (Discord Developer Portal → Application → Bot).
 **Install:**
 ```bash
-claude mcp add discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @discord/mcp-server
+claude mcp add -s user discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @discord/mcp-server
 ```
 **Smoke test:** list guilds (servers).
 
@@ -188,7 +188,7 @@ claude mcp add discord -e DISCORD_BOT_TOKEN=xxx -- npx -y @discord/mcp-server
 **Auth:** API token + email + host.
 **Install:**
 ```bash
-claude mcp add jira \
+claude mcp add -s user jira \
   -e JIRA_HOST=https://acme.atlassian.net \
   -e JIRA_EMAIL=you@acme.com \
   -e JIRA_API_TOKEN=xxx \
@@ -200,7 +200,7 @@ claude mcp add jira \
 **Auth:** Built-in OAuth (HTTP).
 **Install:**
 ```bash
-claude mcp add --transport http figma https://mcp.figma.com/mcp
+claude mcp add -s user --transport http figma https://mcp.figma.com/mcp
 ```
 **Smoke test:** `mcp__figma__whoami`.
 
@@ -208,7 +208,7 @@ claude mcp add --transport http figma https://mcp.figma.com/mcp
 **Auth:** Built-in (HTTP).
 **Install:**
 ```bash
-claude mcp add --transport http exa https://mcp.exa.ai/mcp
+claude mcp add -s user --transport http exa https://mcp.exa.ai/mcp
 ```
 **Smoke test:** `mcp__exa__web_search_exa`.
 
@@ -217,7 +217,7 @@ claude mcp add --transport http exa https://mcp.exa.ai/mcp
 **Install:**
 ```bash
 brew install software-mansion/argent/argent
-claude mcp add argent -- argent mcp
+claude mcp add -s user argent -- argent mcp
 ```
 **Smoke test:** `mcp__argent__list-devices`.
 
@@ -226,7 +226,7 @@ claude mcp add argent -- argent mcp
 **Install (as a plugin, recommended):** via Claude Code's plugin system.
 **Install (manual stdio):**
 ```bash
-claude mcp add context7 -- npx -y @upstash/context7-mcp
+claude mcp add -s user context7 -- npx -y @upstash/context7-mcp
 ```
 **Smoke test:** `mcp__context7__resolve-library-id` with a known library name.
 
