@@ -113,7 +113,7 @@ questions:
   - minimal
   - full
   depends_on: null
-  text: 'What do you want me to work on while you sleep? Describe in 1-3 sentences. Don''t worry about details — I''ll propose specifics next.
+  text: 'What do you want me to work on while you sleep? Describe in your own words.
 
     '
   store_as: q1_1_freeform
