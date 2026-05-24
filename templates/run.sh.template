@@ -317,6 +317,16 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
   if delivery_complete; then
     log_both "Delivery complete — stopping retry loop"
     emit_json info delivery_complete
+    {{#if uses_macos_notification}}
+    # macOS banner — fires regardless of other channels; minimal-tier user's main UX touchpoint.
+    # Subtitle pulls patch + review counts from the brief if present.
+    if command -v osascript >/dev/null 2>&1; then
+      brief_path="$RUNTIME_DIR/brief.md"
+      patches_count=$(find "$RUNTIME_DIR" -maxdepth 1 -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
+      subtitle="$patches_count patch(es) ready — run 'night-shift brief' to open"
+      osascript -e "display notification \"$subtitle\" with title \"Night Shift Agent\" sound name \"Glass\"" 2>/dev/null || true
+    fi
+    {{/if}}
     break
   fi
 

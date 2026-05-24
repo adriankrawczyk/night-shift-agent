@@ -2,9 +2,21 @@
 
 ### Q4.1 — Channel multi-select
 
-**Tier handling:** if `tier == minimal`, SKIP Q4.1 entirely. Default to `.output_channels = ["markdown"]`. Print info: "I'll write your brief to a markdown file in my install folder. You can add email/Slack/etc. later by asking me to extend."
+**Tier handling: Minimal uses scan-driven smart default — no question shown.**
 
-If `tier == balanced | full`, ask the question.
+Pick the best already-available channel based on `$SCAN_JSON.existing_mcps`, in priority order:
+
+1. If `slack` MCP connected → default = `["slack_dm"]` (DM to self — agent reads `slack_search_users` to find user's own id at first run)
+2. Else if `gmail` MCP connected → default = `["email"]` (recipient = `git config user.email`)
+3. Else if `drive` MCP connected → default = `["drive_doc"]` (folder = root or `night-shift-briefs/` if exists)
+4. Else → default = `["macos_notification", "markdown"]` — fires a macOS banner via `osascript -e 'display notification ...'` AND drops markdown to `<install>/runs/<date>/brief.md`. Banner says "Night shift brief ready: N patches, M reviews — open with `night-shift brief`". Clicking the banner triggers `open <path>` via terminal-notifier if installed; otherwise the CLI command is the access path.
+
+After picking the silent default, PRINT to user:
+> "I'll deliver my morning brief via {{ chosen_channel_label }} — using your already-connected {{ underlying_service }}. Change later with `night-shift extend output <channel>`. You can also run `night-shift brief` anytime to open the latest one."
+
+**The `night-shift brief` CLI command** (defined in `templates/cli.template`) opens the most recent brief in `$EDITOR` or via `open` — this is the universal fallback access path regardless of delivery channel.
+
+If `tier == full`, ask the question.
 
 Build options from:
 - Always: markdown file in install folder, GitHub issue (if `.gh_repo.create`)
@@ -36,6 +48,7 @@ For each picked channel, ask only meaningful detail:
 | Channel | Detail |
 |---|---|
 | markdown | none (auto-path: `<install>/runs/<date>/brief.md`) |
+| macos_notification | none (auto: `osascript -e 'display notification "..." with title "Night Shift" subtitle "..."'`; needs no MCP, macOS-only) |
 | email | recipient (default git user.email), subject prefix |
 | slack_dm | target user (autocomplete from MCP) |
 | slack_channel | channel (autocomplete) |
@@ -48,9 +61,7 @@ For each picked channel, ask only meaningful detail:
 Persist as `.output_channels_detail = {...}`.
 
 ### Q4.3 — Brief length
-Lean / Medium / Deep. Persist `.brief_length`.
-
-Full tier additional Q4.3b: per-channel length override. Persist `.brief_length_per_channel = {...}`.
+Lean / Medium / Deep. Persist `.brief_length`. Applies uniformly to all chosen channels.
 
 ---
 

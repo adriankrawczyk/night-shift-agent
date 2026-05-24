@@ -2,6 +2,7 @@
 # night-shift — CLI helper for the Night Shift Agent installed at {{ install_dir }}
 #
 # Subcommands:
+#   night-shift brief [--date YYYY-MM-DD]   Open the latest (or specified) morning brief
 #   night-shift apply <id>      Apply a patch from <install>/patches/ by partial id match
 #   night-shift apply <id> --force   Apply even if working tree is dirty
 #   night-shift run [--dry-run]      Trigger a manual run (same as scheduled)
@@ -54,6 +55,34 @@ find_patch() {
     return 2
   fi
   echo "${matches[1]}"
+}
+
+cmd_brief() {
+  local date=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --date) date="${2:-}"; shift 2 ;;
+      -h|--help) echo "Usage: night-shift brief [--date YYYY-MM-DD]"; return 0 ;;
+      *) echo "Unknown arg: $1" >&2; return 2 ;;
+    esac
+  done
+
+  local brief_file=""
+  if [[ -n "$date" ]]; then
+    brief_file="$RUNS_DIR/$date/brief.md"
+    [[ -f "$brief_file" ]] || { echo "No brief found at $brief_file" >&2; return 1; }
+  else
+    # Latest brief across all date dirs (lexical sort works for YYYY-MM-DD)
+    brief_file=$(find "$RUNS_DIR" -maxdepth 2 -name 'brief.md' 2>/dev/null | sort -r | head -1)
+    [[ -n "$brief_file" ]] || { echo "No briefs found under $RUNS_DIR. Has the night agent run yet?" >&2; return 1; }
+  fi
+
+  echo "Opening: $brief_file"
+  if [[ -n "${EDITOR:-}" ]] && [[ "${NIGHT_SHIFT_BRIEF_USE_EDITOR:-1}" == "1" ]]; then
+    "$EDITOR" "$brief_file"
+  else
+    open "$brief_file"
+  fi
 }
 
 cmd_apply() {
@@ -297,6 +326,7 @@ EOF
 
 # Main dispatch
 case "${1:-}" in
+  brief)     shift; cmd_brief "$@" ;;
   apply)     shift; cmd_apply "$@" ;;
   run)       shift; cmd_run "$@" ;;
   status)    shift; cmd_status "$@" ;;
