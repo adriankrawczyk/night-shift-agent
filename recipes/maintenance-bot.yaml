@@ -29,15 +29,27 @@ gather_steps:
       - Commented-out code blocks present for >30d
 
   bash_pattern: |
-    # Stale branches
+    # Stale branches (git is universal)
     git for-each-ref --sort=committerdate refs/heads/ \
       --format='%(refname:short)|%(committerdate:short)|%(committerdate:relative)' | \
       awk -F'|' '{ split($2,d,"-"); now=systime(); ts=mktime(d[1]" "d[2]" "d[3]" 0 0 0"); age=(now-ts)/86400; if(age>30) print }'
 
-    # Dep audit
-    npm outdated --json 2>/dev/null
-    # OR: cargo outdated --format=json
-    # OR: pip list --outdated --format=json
+    # Dep audit — detect package manager from lockfile, run matching tool.
+    # Skip silently if no lockfile or tool not installed.
+    cd "$USER_REPO"
+    if   [ -f package-lock.json ]   && command -v npm >/dev/null;   then npm outdated --json 2>/dev/null
+    elif [ -f yarn.lock ]           && command -v yarn >/dev/null;  then yarn outdated --json 2>/dev/null
+    elif [ -f pnpm-lock.yaml ]      && command -v pnpm >/dev/null;  then pnpm outdated --format json 2>/dev/null
+    elif [ -f Cargo.lock ]          && command -v cargo >/dev/null; then cargo outdated --format=json 2>/dev/null
+    elif [ -f Pipfile.lock ]        && command -v pipenv >/dev/null;then pipenv update --outdated 2>/dev/null
+    elif [ -f poetry.lock ]         && command -v poetry >/dev/null;then poetry show --outdated 2>/dev/null
+    elif [ -f requirements.txt ]    && command -v pip >/dev/null;   then pip list --outdated --format=json 2>/dev/null
+    elif [ -f go.sum ]              && command -v go >/dev/null;    then go list -u -m -json all 2>/dev/null
+    elif [ -f Gemfile.lock ]        && command -v bundle >/dev/null;then bundle outdated --parseable 2>/dev/null
+    elif [ -f composer.lock ]       && command -v composer >/dev/null; then composer outdated --format=json 2>/dev/null
+    elif [ -f pubspec.lock ]        && command -v dart >/dev/null;  then dart pub outdated --json 2>/dev/null
+    else echo '{"info":"no recognized lockfile / package manager; skipping dep audit"}'
+    fi
 
 implementation_pattern:
   description: |
@@ -45,7 +57,7 @@ implementation_pattern:
       1. Stale branches: list in brief, propose deletion command in brief (user runs it). Do NOT auto-delete.
       2. Dep upgrades within minor: propose patch with version bump + run verify. If passes, ship as PR (per delivery config).
       3. Dep upgrades across major: NEVER auto-bump. Surface as decisions-needed with link to changelog.
-      4. Dead exports: propose removal patch with verify check (`tsc` should still pass with the export removed).
+      4. Dead exports: propose removal patch + re-run user's configured verify methods (Q5.1) — typecheck/lint/test should still pass with the export removed.
       5. Old commented-out code: propose removal patch with git blame note ("removed N-month-old commented block").
 
   brief_section: |

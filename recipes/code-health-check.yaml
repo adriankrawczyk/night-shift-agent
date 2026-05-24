@@ -33,10 +33,18 @@ gather_steps:
 
   bash_pattern: |
     git checkout --detach origin/main
-    # Run each verify method, capture exit code + structured output
-    npm run typecheck 2>&1 | tail -100
-    npm run lint -- --format json 2>/dev/null
-    # ...
+    # Run the verify methods the user already confirmed at install
+    # (Q5.1 → stored in $RUNTIME_DIR/verify-methods.json — each entry is
+    # {name, command, success_exit_code}). Iterate, capture exit + last 100 lines:
+    while IFS= read -r cmd; do
+      echo "=== $cmd ==="
+      bash -c "$cmd" 2>&1 | tail -100
+    done < <(jq -r '.[].command' "$RUNTIME_DIR/verify-methods.json")
+    # Optional extras IF the tool exists in PATH (stack-agnostic):
+    command -v knip      >/dev/null && knip --json 2>/dev/null
+    command -v deadcode  >/dev/null && deadcode 2>/dev/null
+    command -v vulture   >/dev/null && vulture . 2>/dev/null
+    command -v lizard    >/dev/null && lizard --warnings_only 2>/dev/null
 
 implementation_pattern:
   description: |
