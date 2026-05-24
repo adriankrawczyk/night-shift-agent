@@ -24,7 +24,7 @@ These eat days of debugging in production. This installer bakes in patterns from
 curl -fsSL https://raw.githubusercontent.com/adriankrawczyk/night-shift-agent/main/install.sh | bash
 ```
 
-That clones the installer to `~/.night-shift-installer/`, runs preflight (`git`/`jq`/`claude`), and launches the wizard in your Claude Code session. Pick a setup depth (Minimal / Balanced / Full), answer the questions, and let it generate the agent.
+That clones the installer to `~/.night-shift-installer/`, runs preflight (`git`/`jq`/`claude`), and launches the wizard in your Claude Code session. Pick a setup depth (Minimal / Full), answer the questions, and let it generate the agent.
 
 Prefer to inspect first?
 
@@ -53,7 +53,7 @@ The wizard takes ~20-30 min for the Full tier. You can kill it at any time and r
 | 9 | Dashboard | Optional: menu-bar widget showing agent status |
 | 10 | Dry-run + commit | Preview, test fire, push to GitHub |
 
-By tier, total question count: **Minimal 15**, **Balanced 29**, **Full 34** (skip-on-default reduces what you actually answer).
+By tier, total question count: **Minimal ~15**, **Full ~30** (skip-on-default reduces what you actually answer).
 
 ## Platform support
 
@@ -127,7 +127,7 @@ After editing anything in the installer (templates, schema, BASH_PATTERNS), run:
 bash validate.sh
 ```
 
-It checks repo layout, question-ID consistency, bash-pattern extraction, wizard-questions schema, recipe-YAML schema, then renders every template against three mock contexts (minimal / balanced / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, `jq empty`, shellcheck, and golden-file regression on security-critical surfaces. 115 assertions; takes <5 seconds. Use in CI or before sharing changes.
+It checks repo layout, question-ID consistency, bash-pattern extraction, wizard-questions schema, recipe-YAML schema, then renders every template against two mock contexts (minimal / full) verifying zero unresolved `{{ variables }}` plus `bash -n`, `plutil -lint`, `jq empty`, shellcheck, and golden-file regression on security-critical surfaces. 82 assertions; takes <5 seconds. Use in CI or before sharing changes.
 
 ## Credits & lineage
 
