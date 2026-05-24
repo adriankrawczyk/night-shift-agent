@@ -71,7 +71,7 @@ questions:
   - full
   depends_on: null
   header: Install folder
-  text: 'Which folder should I install my files into? (Scripts, prompts, logs — kept separate from your project.)
+  text: 'Which folder should I install my files into? (Night Shift Agent files — kept separate from your project.)
 
     '
   options:
@@ -89,7 +89,7 @@ questions:
   - full
   depends_on: null
   header: GitHub repo
-  text: 'Want me to create a GitHub repo for my files? (For backup and version tracking. Secrets and logs are gitignored — the repo only holds prompts, scripts, config.)
+  text: 'Want me to create a GitHub repo for your instance of Night Shift Agent? (For backup and version tracking. Secrets and logs are gitignored — the repo only holds prompts, scripts, config.)
 
     '
   options:
