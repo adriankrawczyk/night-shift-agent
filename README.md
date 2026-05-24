@@ -117,9 +117,11 @@ night-shift-agent/                   ← installer (this repo)
 
 The wizard's question list lives in `~/.night-shift-installer/wizard-questions.yaml` — structured, ID'd, tier-tagged. Want a different wording? Edit the file. Want to add a question? Add an entry. Re-run the wizard and it picks up your edits. The engine (META_PROMPT.md) is question-agnostic.
 
-## Verifying integrity
+## Verifying integrity (contributors only)
 
-After editing anything in the installer (templates, schema, BASH_PATTERNS), run:
+`tests/` and `validate.sh` are dev tooling — they live in the repo so contributors can verify their changes, but the wizard never copies them to your install. As an installing user you can ignore them.
+
+If you ARE editing the installer (templates, schema, BASH_PATTERNS), run:
 
 ```bash
 bash validate.sh
