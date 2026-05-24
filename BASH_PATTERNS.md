@@ -257,10 +257,32 @@ cleanup() {
     find "$LOG_DIR" -type f \( -name "*.log" -o -name "*.jsonl" \) -mtime +30 -delete 2>/dev/null || true
   fi
 
-  # 5) Drop wrapper.pid
+  # 5) Multi-machine coord audit — fires when this mode finished exit=0 but
+  #    never touched the coord-written flag. Catches the "wrote gist but
+  #    skipped Drive" failure mode that causes the OTHER mode to spuriously
+  #    duplicate today's brief tomorrow. Only audits on normal (exit=0)
+  #    non-dry-run completions; skips on legitimate skip paths.
+  COORD_WRITTEN_FLAG="$LOG_DIR/coord-written.flag"
+  if [[ "$exit_code" -eq 0 && "${DRY_RUN:-0}" -eq 0 ]] && [[ -n "${COORD_GIST_ID:-}" ]]; then
+    if [[ ! -f "$COORD_WRITTEN_FLAG" ]]; then
+      # Suppress on legitimate skip — agent ran but STEP 0.4 short-circuited
+      # because today's brief is already shipped. In that case there's no
+      # coord-write to perform: the original successful run already wrote it.
+      if grep -qE "Today's (local|remote) mode already completed|^routine SKIP|^skip:|coordination-skip" "$LOG" 2>/dev/null; then
+        emit_json info coord_write_skipped_legit
+      else
+        emit_json warn coord_write_missing message="agent finished exit=0 but never wrote coord flag — other mode may spuriously re-run"
+        log_both "WARNING: coord-written.flag missing after exit=0 — agent skipped coord write; other mode may not detect this success"
+      fi
+    else
+      emit_json info coord_write_verified
+    fi
+  fi
+
+  # 6) Drop wrapper.pid
   rm -f "$LOG_DIR/wrapper.pid"
 
-  # 6) Release lock LAST
+  # 7) Release lock LAST
   release_lock
 
   emit_json info cleanup_done exit_code="$exit_code"
