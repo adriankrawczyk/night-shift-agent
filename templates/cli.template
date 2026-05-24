@@ -219,6 +219,7 @@ cmd_doctor() {
     check_fail "claude --version failed — re-login needed"
   fi
 
+{{#if has_github_remote}}
   echo ""
   echo "## gh CLI auth"
   if command -v gh >/dev/null 2>&1; then
@@ -232,6 +233,7 @@ cmd_doctor() {
   else
     check_fail "gh missing — PR-delivery recipes will fail without it"
   fi
+{{/if}}
 
   echo ""
   echo "## MCP connectivity"

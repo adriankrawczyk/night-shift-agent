@@ -246,6 +246,28 @@ stack_preflight() {
   if [[ -f go.sum ]] && command -v go >/dev/null 2>&1; then
     log_both "Preflight: go mod download"; go mod download 2>>"$LOG" || true
   fi
+  # Swift Package Manager — resolve before xcodebuild/swift test
+  if [[ -f Package.swift ]] && command -v swift >/dev/null 2>&1; then
+    [[ -d .build ]] || { log_both "Preflight: swift package resolve"; swift package resolve 2>>"$LOG" || true; }
+  fi
+  # CocoaPods — only if Podfile.lock present and pods not yet installed
+  if [[ -f Podfile.lock ]] && command -v pod >/dev/null 2>&1; then
+    [[ -d Pods ]] || { log_both "Preflight: pod install"; pod install --silent 2>>"$LOG" || true; }
+  fi
+  # Maven — mvn -q dependency:resolve (only if .m2 not yet warm for this project)
+  if [[ -f pom.xml ]] && command -v mvn >/dev/null 2>&1; then
+    log_both "Preflight: mvn dependency:resolve"; mvn -q dependency:resolve 2>>"$LOG" || true
+  fi
+  # Gradle — gradle dependencies if Gradle present
+  if [[ -f gradlew ]]; then
+    log_both "Preflight: gradlew dependencies"; ./gradlew --quiet dependencies 2>>"$LOG" || true
+  elif [[ -f build.gradle || -f build.gradle.kts ]] && command -v gradle >/dev/null 2>&1; then
+    log_both "Preflight: gradle dependencies"; gradle --quiet dependencies 2>>"$LOG" || true
+  fi
+  # Ruby — bundle install if Gemfile.lock
+  if [[ -f Gemfile.lock ]] && command -v bundle >/dev/null 2>&1; then
+    log_both "Preflight: bundle install"; bundle install --quiet 2>>"$LOG" || true
+  fi
   emit_json info stack_preflight_done
 }
 stack_preflight

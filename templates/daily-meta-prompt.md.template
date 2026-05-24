@@ -75,7 +75,8 @@ ls -t ~/.claude/projects/*/2*.jsonl 2>/dev/null | head -20
 - Channels where user was @mentioned
 {{/if}}
 
-### C. GH activity
+{{#if has_github_remote}}
+### C. GitHub activity
 ```bash
 # gh doesn't have --updated; use --search with the GitHub search query syntax
 YESTERDAY=$(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d 'yesterday' +%Y-%m-%d)
@@ -83,6 +84,7 @@ gh pr list   --author @me   --search "updated:>=${YESTERDAY}"  --json number,tit
 gh pr list   --search "reviewer:@me updated:>=${YESTERDAY}"    --json number,title,updatedAt,url
 gh issue list --assignee @me --search "updated:>=${YESTERDAY}" --json number,title,updatedAt,url
 ```
+{{/if}}
 
 {{#if has_linear}}
 ### D. Linear

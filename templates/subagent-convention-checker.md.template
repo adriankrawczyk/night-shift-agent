@@ -57,6 +57,22 @@ For EACH path above, parse it according to its kind:
 - `.golangci.yml` / `.golangci.yaml` — each enabled linter
 - `gofumpt` markers in `go.mod` (if any)
 
+**Swift / Apple platforms**
+- `.swiftlint.yml` — `disabled_rules`, `opt_in_rules`, per-rule severity (`warning`/`error`), and configurable rules like `line_length`, `identifier_name`. Each entry = an enforceable rule.
+- `.swiftformat` — formatting rules (`--indent`, `--ifdef`, `--allman`, etc.)
+- `Package.swift` `swiftSettings: [.enableUpcomingFeature("...")]` — language opt-ins
+- `.periphery.yml` — dead-code rules
+
+**Ruby**
+- `.rubocop.yml` — each `Style/`/`Lint/`/`Metrics/` cop is a rule
+- `Gemfile` `gem 'standard'` etc.
+
+**JVM**
+- `.editorconfig` (often used for Kotlin/Java formatting)
+- `detekt.yml` (Kotlin)
+- `checkstyle.xml` / `pmd-ruleset.xml` (Java)
+- `spotless` block in `build.gradle(.kts)` / `pom.xml`
+
 **Project-specific prose**
 - `CONTRIBUTING.md`, `CODE_STYLE.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `docs/style.md` — scan for "must" / "never" / "always" lines that look like enforceable rules
 
