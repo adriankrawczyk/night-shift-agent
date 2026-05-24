@@ -287,6 +287,8 @@ These render as human-readable joined text inside `prompt.md`. Compute by joinin
 | `patch_delivery_summary` | derived string. If `patch_delivery_merge` → "disk + PR + auto-merge tactical". Else if `patch_delivery_pr` → "disk + PR". Else "disk only". |
 | `schedule_human_readable` | `"<day-range> at <HH:MM> local"`. Examples: `"Mon-Fri at 23:55 local"`, `"daily at 23:55 local"`, `"on demand"` if `execution_mode == on_demand` |
 | `recipes_list` | `join(", ", recipes)` |
+| `service_map_already_connected` | Bullet list, one line per service: `- <service-id> ✓` (e.g. `- github ✓`). NO "used by" / "needed for" column — that's internal architecture, user shouldn't care. Order: alphabetical. |
+| `service_map_to_install` | Bullet list, one line per service: `- <service-id> — <one-sentence what-it-does pulled from mcp-registry or MCP_PATTERNS.md>`. NO "used by job" column. Order: required-first then optional. |
 | `recipe_gather_steps` | a map `{recipe_id: inline_markdown_block}` used by `{{> (lookup recipe_gather_steps this) }}` partial. For each picked recipe, wizard reads `recipes/<id>.yaml`, extracts the `gather_steps.description` and `gather_steps.bash_pattern` fields, and assembles a block:<br>```\n### {recipe.name}\n\n{gather_steps.description}\n\nBash hint:\n```bash\n{gather_steps.bash_pattern}\n```\n```<br>Stored as a string in the render-ctx — the partial syntax inlines it verbatim at render time. |
 
 ### Render-context assembly
