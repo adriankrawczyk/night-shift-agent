@@ -36,6 +36,25 @@ jq --argjson existing "$(jq '.existing_mcps // []' "$SCAN_JSON")" '
 
 If `services_to_install` is empty after this, Q2.2 skips cleanly. If non-empty, the loop fires.
 
+**REQUIRED post-Q2.1 derivation step #2 — `convention_checker_enabled`:**
+
+Scan each user project for codified-convention files; if any are present, gate the `convention-checker` subagent template to render in Phase 10.
+
+```bash
+# Detect rule files in any user project. Phase-0 should have already populated
+# $SCAN_JSON.projects[].rule_files via:
+#   find "$path" \( -path "*/.cursor/rules/*.mdc" -o -name ".eslintrc*" \
+#                   -o -name "eslint.config.*" -o -name "biome.json" \
+#                   -o -name ".prettierrc*" -o -name "prettier.config.*" \
+#                   -o -name ".editorconfig" \) -maxdepth 5 -not -path "*/node_modules/*"
+# If you skipped that, run it now and persist to $SCAN_JSON.projects[].rule_files.
+
+CONV_ENABLED=$(jq '[.projects[]?.rule_files // [] | length] | add > 0' "$SCAN_JSON")
+jq --argjson e "$CONV_ENABLED" '.convention_checker_enabled = $e' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+```
+
+When `convention_checker_enabled = true`, Phase 10 renders `<install>/.claude/agents/convention-checker.md`, and `prompt.md`'s ORCHESTRATION section routes through it BEFORE the reviewer. When false, the subagent is skipped (no rule sources → nothing to check against).
+
 ### Q2.2 — Install missing services (loop per missing)
 
 For each missing service the user wants:

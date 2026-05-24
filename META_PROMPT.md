@@ -180,6 +180,12 @@ Each `depends_on` is a single-line expression. The wizard evaluates it against a
 | `os` | `$SCAN_JSON.os` (e.g., `macOS`) |
 | `format` | `$ANSWERS_JSON.brief_format` (Q4.3b custom format choice) |
 | `execution_mode` | `$ANSWERS_JSON.execution_mode` |
+| `connected_services` | alias of `$SCAN_JSON.existing_mcps` (the list of already-connected MCP servers from `claude mcp list`). Used by Q2.3's `loop_over: connected_services` to iterate already-available write-capable tools for opt-in. |
+| `has_github_remote` | Computed at start of Phase 6 (BEFORE Q6.1's option-filter). Formula: `[.projects[]?.github \| select(. != null)] \| length > 0`. Gates Q6.1's `pr` and `merge` options + Q6.2 entirely (no-remote installs are disk-only). |
+| `convention_checker_enabled` | Computed at end of Phase 2 (alongside `services_to_install`). True if scan detected ANY of `{.cursor/rules/, .eslintrc*, eslint.config.*, biome.json, .prettierrc*, prettier.config.*, .editorconfig}` in `$SCAN_JSON.projects[].rule_files`. Gates whether the `convention-checker` subagent template renders in Phase 10. Empty rule set means no rules to check against, so no subagent. |
+| `has_specific_days` | Computed at end of Phase 7. True if `$ANSWERS_JSON.schedule.days` is a non-empty array (vs `"daily"` or `null`). Used by launchd plist templates to decide between a single `StartCalendarInterval` dict (daily) and an array-of-dicts (per-weekday). |
+| `multi_machine` | True if `$ANSWERS_JSON.execution_mode == "both"`. Used by templates that emit coord-store logic (gist/Drive dual-write). |
+| `ui_automation_enabled` | True if `$ANSWERS_JSON.ui_automation` is not `"none"`. Used by tester-subagent gating + run.sh's UI-automation skip-fraud check. |
 
 Supported operators in `depends_on`:
 - `==`, `!=` — equality (RHS bareword is treated as string literal — e.g. `os == macOS` matches `"macOS"`)

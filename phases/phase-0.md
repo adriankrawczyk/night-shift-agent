@@ -124,6 +124,21 @@ grep -rEl 'sign[_-]?in|login|auth|session|jwt' "$path/src" 2>/dev/null | head -5
 
 Persist `.projects[i].has_login_flow = true/false`.
 
+**Codified convention files** (gates the `convention-checker` subagent in Phase 10):
+```bash
+find "$path" -maxdepth 5 \
+  \( -path "*/.cursor/rules/*.mdc" \
+     -o -name ".eslintrc*" \
+     -o -name "eslint.config.*" \
+     -o -name "biome.json" \
+     -o -name ".prettierrc*" \
+     -o -name "prettier.config.*" \
+     -o -name ".editorconfig" \) \
+  -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null
+```
+
+Persist as `.projects[i].rule_files = [...]` (array of absolute paths). Phase 2 derives `convention_checker_enabled` from the union across projects.
+
 **Stale branches:**
 ```bash
 git -C "$path" for-each-ref --sort=committerdate refs/heads/ \

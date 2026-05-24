@@ -8,6 +8,7 @@ Standard. Persist `.reviewer_persona.enabled = bool`.
 ### Q3.2 — Who (if enabled)
 Free text list of GH handles. For each:
 - `gh api users/<handle>` — validate exists AND not a bot (`.type == "User"`)
+- **On `404` / not-a-User**: don't silently skip. Show inline error ("`@<handle>` doesn't look like a real GitHub User — typo? bot? deleted account?") and re-prompt for this slot. Same protocol as Q0.1 username validation. After 3 failed attempts on the same slot, offer to skip it.
 - If bot: skip with warning "GH bot — persona builder doesn't model bot reviewers" (GAP #11 fix)
 - Scan user's PRs for this reviewer:
   ```bash

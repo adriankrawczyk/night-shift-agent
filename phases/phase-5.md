@@ -14,6 +14,23 @@ Persist `.verify_methods = [{name, command, enabled}]`.
 
 **Always ask** (Minimal + Full). Skip ONLY if `has_ui_automation == true` (user already has Playwright MCP, Argent, or computer-use connected — no need to re-pick).
 
+**When skipped, seed `.ui_automation` from detection** (so templates don't render `none`):
+```bash
+if [[ "$(jq -r '.has_ui_automation' "$ANSWERS_JSON")" == "true" ]]; then
+  # First-found-wins ordering: argent > playwright > computer_use
+  if jq -e '.existing_mcps | index("argent")' "$SCAN_JSON" >/dev/null; then
+    UI_TOOL="argent"
+  elif jq -e '.existing_mcps | any(. == "playwright" or . == "playwright_mcp")' "$SCAN_JSON" >/dev/null; then
+    UI_TOOL="playwright"
+  elif jq -e '.existing_mcps | index("computer_use")' "$SCAN_JSON" >/dev/null; then
+    UI_TOOL="computer_use"
+  else
+    UI_TOOL="none"  # shouldn't reach this — has_ui_automation was true
+  fi
+  jq --arg t "$UI_TOOL" '.ui_automation = $t' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+fi
+```
+
 UI automation is universal — it's not just for web/RN projects. Use cases the wizard should NOT gate out:
 - Backend service whose admin panel is a desktop Electron app (computer-use)
 - CLI tool whose verify needs Photoshop / Figma / external Mac app (computer-use)

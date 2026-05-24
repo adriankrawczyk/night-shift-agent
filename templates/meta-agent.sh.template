@@ -117,11 +117,88 @@ if [[ "$DECISION_CLASS" == "none" ]]; then
   exit 0
 fi
 
+# === RE-RUN HELPER (called below in two places: no-changes branch + end of script) ===
+# Reads /tmp/meta-agent-decision.json for request_rerun + rerun_reason fields.
+# If request_rerun=true AND criteria pass (≥4h until next deadline, no prior
+# re-run today), overwrites coord status='failed' (so STEP 0.4 doesn't skip),
+# creates anti-loop flag, then nohup-spawns run.sh again. This is how meta-agent
+# recovers from a broken brief by triggering a fresh night-agent run.
+RERUN_DECISION_FILE="/tmp/meta-agent-decision.json"
+RERUN_DEADLINE_HOUR="${RERUN_DEADLINE_HOUR:-8}"   # 08:00 local — minimum buffer before the user wakes up
+maybe_spawn_rerun() {
+  [[ ! -f "$RERUN_DECISION_FILE" ]] && return
+  command -v jq >/dev/null 2>&1 || return
+  jq empty "$RERUN_DECISION_FILE" 2>/dev/null || return
+
+  local request_rerun
+  request_rerun=$(jq -r '.request_rerun // false' "$RERUN_DECISION_FILE")
+  [[ "$request_rerun" != "true" ]] && return
+
+  local rerun_reason
+  rerun_reason=$(jq -r '.rerun_reason // "unspecified"' "$RERUN_DECISION_FILE")
+
+  # Anti-loop: skip if already re-ran today
+  local rerun_flag="$ROUTINE_DIR/runs/${TODAY_LOCAL}-rerun.flag"
+  if [[ -f "$rerun_flag" ]]; then
+    emit_log "Re-run REQUESTED but prior re-run already happened today (flag: $rerun_flag) — skipping"
+    return
+  fi
+
+  # Time budget: need ≥4h until RERUN_DEADLINE_HOUR local. Computed via BSD date
+  # so this stays macOS-only (consistent with the rest of the installer).
+  local now_ts target_ts hours_until_deadline today_iso
+  now_ts=$(date +%s)
+  today_iso=$(date +%F)
+  target_ts=$(date -j -f '%Y-%m-%d %H:%M' "$today_iso ${RERUN_DEADLINE_HOUR}:00" +%s 2>/dev/null || echo 0)
+  if (( target_ts <= now_ts )); then
+    target_ts=$(date -j -v+1d -f '%Y-%m-%d %H:%M' "$(date -v+1d +%F) ${RERUN_DEADLINE_HOUR}:00" +%s 2>/dev/null || echo 0)
+  fi
+  if (( target_ts == 0 )); then
+    emit_log "Re-run check: could not compute target ${RERUN_DEADLINE_HOUR}:00 — skipping defensively"
+    return
+  fi
+  hours_until_deadline=$(( (target_ts - now_ts) / 3600 ))
+  if (( hours_until_deadline < 4 )); then
+    emit_log "Re-run REQUESTED but only ${hours_until_deadline}h until ${RERUN_DEADLINE_HOUR}:00 — skipping (need ≥4h)"
+    return
+  fi
+
+  emit_log "Re-run APPROVED: reason='$rerun_reason', ${hours_until_deadline}h until ${RERUN_DEADLINE_HOUR}:00"
+  echo "rerun requested at $(date -u +%FT%TZ): $rerun_reason" > "$rerun_flag"
+
+  {{#if multi_machine}}
+  # Overwrite coord status='failed' so night-agent's STEP 0.4 doesn't skip
+  local gist_id_file="$ROUTINE_DIR/runs/coord-gist-id.txt"
+  if [[ -f "$gist_id_file" ]]; then
+    local gist_id; gist_id="$(cat "$gist_id_file" 2>/dev/null | tr -d '[:space:]')"
+    if [[ -n "$gist_id" ]] && command -v gh >/dev/null 2>&1; then
+      local coord_tmp; coord_tmp=$(mktemp)
+      if gh gist view "$gist_id" -f coord.json > "$coord_tmp" 2>/dev/null; then
+        jq --arg note "meta-agent re-run requested: $rerun_reason" \
+           '.by_mode.local.status = "failed"
+            | .by_mode.local.completed_at = null
+            | .by_mode.local.rerun_note = $note' "$coord_tmp" > "$coord_tmp.new" \
+          && mv "$coord_tmp.new" "$coord_tmp"
+        gh gist edit "$gist_id" -f coord.json "$coord_tmp" 2>&1 | tee -a "$META_LOG"
+        emit_log "Coord gist overwritten: status='failed' with rerun_note"
+      fi
+      rm -f "$coord_tmp"
+    fi
+  fi
+  {{/if}}
+
+  # Spawn fresh run.sh detached
+  nohup "$ROUTINE_DIR/run.sh" > /dev/null 2>&1 &
+  disown 2>/dev/null || true
+  emit_log "Spawned re-run of run.sh (detached PID $!)"
+}
+
 # === Check if anything changed ===
 if git -C "$ROUTINE_DIR" diff --quiet main..HEAD; then
   emit_log "No actual diff vs main — meta-claude said it'd change things but didn't"
   git -C "$ROUTINE_DIR" checkout --quiet main
   git -C "$ROUTINE_DIR" branch -D "$META_BRANCH" 2>/dev/null
+  maybe_spawn_rerun
   exit 0
 fi
 
@@ -210,5 +287,8 @@ if git -C "$ROUTINE_DIR" stash list | grep -q "meta-agent-pre-run"; then
   git -C "$ROUTINE_DIR" stash apply --quiet 2>>"$META_LOG" && \
     git -C "$ROUTINE_DIR" stash drop --quiet 2>>"$META_LOG"
 fi
+
+# Check whether the meta-claude flagged the night-run as broken and requested a re-run.
+maybe_spawn_rerun
 
 emit_log "Meta-agent done"

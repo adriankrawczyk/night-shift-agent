@@ -176,6 +176,32 @@ else
   # Reset worktree to clean state so prior crashed-run state doesn't leak forward.
   git -C "$WORKTREE" reset --hard --quiet 2>>"$LOG" || true
   git -C "$WORKTREE" clean -fdx --quiet 2>>"$LOG" || true
+
+  # Verify reset succeeded. Rare failure: permission glitch on .git/index lock
+  # leaves the tree LOOKING reset but actually dirty — next run inherits the rot.
+  # Escalate to full worktree recreate (~5min tax, kills node_modules cache,
+  # bulletproof). Detect via porcelain status + HEAD-vs-origin/main SHA compare.
+  POST_RESET_DIRTY="$(git -C "$WORKTREE" status --porcelain 2>/dev/null | head -5 | tr '\n' ';')"
+  POST_RESET_HEAD_SHA="$(git -C "$WORKTREE" rev-parse HEAD 2>/dev/null || echo none)"
+  ORIGIN_MAIN_SHA="$(git -C "$WORKTREE" rev-parse "origin/$DEFAULT_BRANCH" 2>/dev/null || echo none)"
+  if [[ -n "$POST_RESET_DIRTY" || "$POST_RESET_HEAD_SHA" != "$ORIGIN_MAIN_SHA" ]]; then
+    log_both "WARNING: worktree still dirty/wrong-HEAD after reset (dirty=$POST_RESET_DIRTY head=${POST_RESET_HEAD_SHA:0:7} expected=${ORIGIN_MAIN_SHA:0:7}) — escalating to full worktree recreate"
+    emit_json warn worktree_reset_failed dirty="$POST_RESET_DIRTY" head="${POST_RESET_HEAD_SHA:0:7}" expected="${ORIGIN_MAIN_SHA:0:7}"
+    {
+      git -C "$USER_REPO" worktree remove --force "$WORKTREE" 2>&1 || true
+      rm -rf "$WORKTREE" 2>&1 || true  # belt-and-suspenders if remove leaves directory
+      git -C "$USER_REPO" worktree prune 2>&1 || true
+      git -C "$USER_REPO" worktree add --detach "$WORKTREE" "origin/$DEFAULT_BRANCH" 2>&1
+    } 2>&1 | head -30 >>"$LOG"
+    POST_RECREATE_DIRTY="$(git -C "$WORKTREE" status --porcelain 2>/dev/null | head -5 | tr '\n' ';')"
+    if [[ -n "$POST_RECREATE_DIRTY" ]]; then
+      log_both "ERROR: worktree force-recreate also failed (dirty=$POST_RECREATE_DIRTY) — aborting run"
+      emit_json error worktree_recreate_failed dirty="$POST_RECREATE_DIRTY"
+      exit 1
+    fi
+    log_both "Worktree recreate OK (node_modules cache lost — agent will reinstall)"
+    emit_json info worktree_recreate_ok
+  fi
 fi
 {{/if}}
 
@@ -331,6 +357,17 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
   if delivery_complete; then
     log_both "Delivery complete — stopping retry loop"
     emit_json info delivery_complete
+    {{#if ui_automation_enabled}}
+    # UI-automation skip-fraud check — if wrapper confirmed the UI-automation
+    # tool is available but the agent never logged the mandatory ground-truth
+    # probe event ("ui_devices_listed_at_step3"), the agent likely rationalized
+    # a skip with introspection-based excuses. Loud warning so morning triage
+    # catches it; doesn't fail delivery (brief still ships).
+    if [[ "${DRY_RUN:-0}" -eq 0 ]] && [[ "${NIGHT_SHIFT_UI_AUTOMATION_AVAILABLE:-0}" == "1" ]] && ! grep -q 'ui_devices_listed_at_step3' "$JSON_LOG" 2>/dev/null; then
+      emit_json error ui_automation_probe_missing reason="agent never logged ui_devices_listed_at_step3 despite NIGHT_SHIFT_UI_AUTOMATION_AVAILABLE=1"
+      log_both "WARNING: agent skipped mandatory UI-automation ground-truth probe — likely fraudulent skip in brief"
+    fi
+    {{/if}}
     {{#if uses_macos_notification}}
     # macOS banner — fires regardless of other channels; minimal-tier user's main UX touchpoint.
     # Subtitle pulls patch + review counts from the brief if present.
@@ -351,14 +388,67 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
     break
   fi
 
-  # Rate limit detection
-  if grep -qiE 'usage limit (reached|exceeded)|rate.?limit_error|429 Too Many Requests' "$LOG" 2>/dev/null; then
-    if (( RATE_LIMIT_RETRIES < MAX_RATE_LIMIT_RETRIES )); then
-      log_both "Rate limited — waiting and retrying (without counting attempt)"
-      RATE_LIMIT_RETRIES=$((RATE_LIMIT_RETRIES + 1))
-      sleep $(( RATE_LIMIT_RETRIES * 600 ))
-      continue
+  # Rate-limit AND server-overload detection (429 + 529).
+  # claude --print can emit two distinct error families that should NOT count
+  # toward MAX_CLAUDE_ATTEMPTS:
+  #   - 429 / "usage limit reached" / "rate_limit_error" — real usage block;
+  #     response often includes a reset ISO timestamp or "in 4h 12m" phrase
+  #   - 529 / "Overloaded" / "overloaded_error" — transient Anthropic outage,
+  #     no reset time; typically resolves within minutes
+  # Both share MAX_RATE_LIMIT_RETRIES; without distinguishing them, a 15-min
+  # Anthropic outage burns the entire 3-attempt budget on 30-second retries.
+  RATE_LIMIT_HIT=0
+  OVERLOAD_HIT=0
+  RATE_LIMIT_RESET_EPOCH=0
+  if [[ -f "$LOG" ]]; then
+    if grep -qiE 'usage limit (reached|exceeded)|usage_limit_reached|rate.?limit_error|429 Too Many Requests' "$LOG" 2>/dev/null; then
+      RATE_LIMIT_HIT=1
+      # Try to extract reset ISO from claude's error message
+      RESET_ISO=$(grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$LOG" 2>/dev/null | tail -3 | head -1)
+      if [[ -n "$RESET_ISO" ]]; then
+        RATE_LIMIT_RESET_EPOCH=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$RESET_ISO" +%s 2>/dev/null || echo 0)
+      fi
+      # Fallback: parse "in 4h 12m" style phrases
+      if (( RATE_LIMIT_RESET_EPOCH == 0 )); then
+        WAIT_HOURS=$(grep -oE 'in [0-9]+ ?h' "$LOG" 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
+        WAIT_MINS=$(grep -oE 'in [0-9]+ ?(min|m)' "$LOG" 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
+        WAIT_SEC=$(( ${WAIT_HOURS:-0} * 3600 + ${WAIT_MINS:-0} * 60 ))
+        # Conservative default: 5h 5min (usage block duration + safety margin)
+        (( WAIT_SEC == 0 )) && WAIT_SEC=18300
+        RATE_LIMIT_RESET_EPOCH=$(( $(date -u +%s) + WAIT_SEC ))
+      fi
+    elif grep -qiE 'API Error: 529|529 Overloaded|overloaded_error' "$LOG" 2>/dev/null; then
+      OVERLOAD_HIT=1
+      # Server-side overload — exponential backoff (120s, 240s, 360s) capped
+      # by MAX_RATE_LIMIT_RETRIES so a sustained outage doesn't hang forever.
+      RATE_LIMIT_RESET_EPOCH=$(( $(date -u +%s) + (RATE_LIMIT_RETRIES + 1) * 120 ))
     fi
+  fi
+
+  if (( RATE_LIMIT_HIT == 1 || OVERLOAD_HIT == 1 )) && (( RATE_LIMIT_RETRIES < MAX_RATE_LIMIT_RETRIES )); then
+    NOW_EPOCH=$(date -u +%s)
+    WAIT_FOR=$(( RATE_LIMIT_RESET_EPOCH - NOW_EPOCH ))
+    (( WAIT_FOR < 30 )) && WAIT_FOR=30
+    (( WAIT_FOR > 21600 )) && WAIT_FOR=21600   # 6h cap
+    RATE_LIMIT_RETRIES=$((RATE_LIMIT_RETRIES+1))
+    if (( OVERLOAD_HIT == 1 )); then
+      log_both "API OVERLOAD (529) detected (retry $RATE_LIMIT_RETRIES/$MAX_RATE_LIMIT_RETRIES) — sleeping ${WAIT_FOR}s, then resuming SAME attempt #$ATTEMPT"
+      emit_json warn api_overloaded_529 wait_s="$WAIT_FOR" attempt="$ATTEMPT" retry="$RATE_LIMIT_RETRIES"
+    else
+      log_both "RATE-LIMIT detected (retry $RATE_LIMIT_RETRIES/$MAX_RATE_LIMIT_RETRIES) — sleeping ${WAIT_FOR}s, then resuming SAME attempt #$ATTEMPT"
+      emit_json warn rate_limit_sleep wait_s="$WAIT_FOR" attempt="$ATTEMPT" retry="$RATE_LIMIT_RETRIES"
+    fi
+    # Chunked sleep so SIGTERM (cleanup trap) can interrupt
+    REMAINING="$WAIT_FOR"
+    while (( REMAINING > 0 )); do
+      CHUNK=60
+      (( REMAINING < CHUNK )) && CHUNK="$REMAINING"
+      sleep "$CHUNK"
+      REMAINING=$(( REMAINING - CHUNK ))
+    done
+    # IMPORTANT: continue WITHOUT incrementing ATTEMPT — rate-limit retries
+    # don't count toward MAX_CLAUDE_ATTEMPTS, only real failures do.
+    continue
   fi
 
   if (( ATTEMPT < MAX_CLAUDE_ATTEMPTS )); then

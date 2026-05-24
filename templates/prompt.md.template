@@ -387,27 +387,33 @@ Use the Agent tool with `subagent_type` to delegate labor while keeping orchestr
 
 **Exact subagent_type names** (must match the `name:` frontmatter in each subagent file — Claude Code's Agent tool looks these up by name, not path):
 
-- `night-shift-coder` (file: `{{ install_dir }}/subagents/coder.md`) — generates one patch per call. Returns unified diff + verdict.
+- `night-shift-coder` (file: `{{ install_dir }}/.claude/agents/coder.md`) — generates one patch per call. Returns unified diff + verdict.
+{{#if convention_checker_enabled}}
+- `night-shift-convention-checker` (file: `{{ install_dir }}/.claude/agents/convention-checker.md`) — mechanical, rule-based scan against the project's codified conventions (cursor/eslint/biome/prettier/editorconfig). Cheap, deterministic; runs BEFORE the reviewer to catch hard violations on the cheap.
+{{/if}}
 {{#if reviewer_persona_enabled}}
-- `night-shift-reviewer` (file: `{{ install_dir }}/subagents/reviewer.md`) — reviews a patch in {{ reviewer_persona_handle }}'s style. Returns 0-5 comments or LGTM.
+- `night-shift-reviewer` (file: `{{ install_dir }}/.claude/agents/reviewer.md`) — reviews a patch in {{ reviewer_persona_handle }}'s style. Returns 0-5 comments or LGTM.
 {{/if}}
 {{#if ui_automation_enabled}}
-- `night-shift-tester` (file: `{{ install_dir }}/subagents/tester.md`) — runs UI live-verify on a patch. Returns PASS/FAIL with screenshots.
+- `night-shift-tester` (file: `{{ install_dir }}/.claude/agents/tester.md`) — runs UI live-verify on a patch. Returns PASS/FAIL with screenshots.
 {{/if}}
 {{#if recipe_includes "bug_triager"}}
-- `night-shift-triager` (file: `{{ install_dir }}/subagents/triager.md`) — ranks bug feed by tractability. Runs ONCE per run before bug loop.
+- `night-shift-triager` (file: `{{ install_dir }}/.claude/agents/triager.md`) — ranks bug feed by tractability. Runs ONCE per run before bug loop.
 {{/if}}
 
 Pipeline per patch:
 1. orchestrator (you) picks approach
 2. → coder
+{{#if convention_checker_enabled}}
+3. → convention-checker (FAIL with hard violations → coder v2 BEFORE reviewer)
+{{/if}}
 {{#if reviewer_persona_enabled}}
-3. → reviewer (REQUEST_CHANGES → coder v2)
+4. → reviewer (REQUEST_CHANGES → coder v2)
 {{/if}}
 {{#if ui_automation_enabled}}
-4. → tester (FAIL → coder v2, but only for UI-touching patches)
+5. → tester (FAIL → coder v2, but only for UI-touching patches)
 {{/if}}
-5. → record + ship
+6. → record + ship
 
 Max 3 coder iterations per patch.
 

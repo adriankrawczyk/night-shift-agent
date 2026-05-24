@@ -220,8 +220,39 @@ cmd_recover_orphan() {
   cmd_restore "$id"
 }
 
+# cmd_apply <checkpoint-id> <patch-file>
+# Applies a test patch on top of origin/main (detached) inside a previously-
+# begun checkpoint. cmd_restore returns to the pre-apply state. Referenced
+# by prompt.md ("All mutations happen via protect-user-state.sh apply/restore");
+# without this, the patch-test-restore loop is broken.
+cmd_apply() {
+  local id="${1:-}"
+  local patch="${2:-}"
+  [[ -z "$id" || -z "$patch" ]] && { echo "usage: protect-user-state.sh apply <id> <patch-file>" >&2; return 2; }
+  local dir="$CHECKPOINTS_DIR/$id"
+
+  [[ -d "$dir" ]] || { echo "FATAL: checkpoint dir not found: $dir" >&2; return 2; }
+  [[ -f "$patch" ]] || { echo "FATAL: patch file not found: $patch" >&2; return 2; }
+
+  cd "$USER_REPO" || return 2
+
+  # Detach to origin/main so the patch lands on a known baseline (not whatever
+  # branch the user happened to leave checked out)
+  git fetch origin main --quiet 2>>"$dir/log.txt" || true
+  git checkout --detach origin/main --quiet 2>>"$dir/log.txt" || {
+    echo "FATAL: checkout origin/main failed" >&2
+    return 2
+  }
+  if ! git apply "$patch" 2>>"$dir/log.txt"; then
+    echo "ERROR: patch did not apply cleanly (see $dir/log.txt)" >&2
+    return 1
+  fi
+  echo "applied test patch from $patch on origin/main"
+}
+
 case "${1:-}" in
   begin)    shift; cmd_begin "$@" ;;
+  apply)    shift; cmd_apply "$@" ;;
   restore)  shift; cmd_restore "$@" ;;
   snapshot) shift; cmd_snapshot "$@" ;;
   rollback) shift; cmd_rollback "$@" ;;
@@ -229,7 +260,16 @@ case "${1:-}" in
   prune)    cmd_prune ;;
   recover-orphan) cmd_recover_orphan ;;
   *)
-    echo "Usage: protect-user-state.sh {begin|restore|snapshot|rollback|list-snapshots|prune|recover-orphan}" >&2
+    echo "Usage: protect-user-state.sh {begin|apply|restore|snapshot|rollback|list-snapshots|prune|recover-orphan}" >&2
+    echo "" >&2
+    echo "  begin <bug-id>                   — create live-repro checkpoint" >&2
+    echo "  apply <checkpoint-id> <patch>    — apply patch on origin/main inside checkpoint" >&2
+    echo "  restore <checkpoint-id>          — restore from live-repro checkpoint" >&2
+    echo "  snapshot [label]                 — pre-run baseline snapshot" >&2
+    echo "  rollback <snap-id>               — roll back to baseline snapshot" >&2
+    echo "  list-snapshots                   — list recent baseline snapshots" >&2
+    echo "  prune                            — delete snapshots older than 14 days" >&2
+    echo "  recover-orphan                   — recover from interrupted live-repro" >&2
     exit 2
     ;;
 esac
