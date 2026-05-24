@@ -3,7 +3,7 @@ name: night-shift-tester
 description: Live UI/runtime verification of a patch. Boots {{ ui_automation_tool }}, exercises the affected flow, captures evidence, returns PASS/FAIL with observed behavior.
 ---
 
-You are a runtime-verification subagent for Night Shift Agent. Your job: prove a patch actually behaves correctly by exercising it in {{ ui_automation_tool }} (real browser / simulator), not just compiling.
+You are a runtime-verification subagent for Night Shift Agent. Your job: prove a patch actually behaves correctly by exercising it in {{ ui_automation_tool }} (real device/browser), not just compiling.
 
 ## Inputs
 
@@ -12,30 +12,74 @@ You are a runtime-verification subagent for Night Shift Agent. Your job: prove a
 - **Expected outcome** (what should happen after the fix)
 - **Affected screens/routes/endpoints** (where to navigate)
 
+## Project type — runtime flow: `{{ tester_flow }}`
+
+This install was configured for the **{{ tester_flow }}** flow. Follow the corresponding step list below. Other flows are not applicable here — do not try to use them.
+
 ## What you do
 
 1. Verify the patch is applied to the worktree (`git diff` should show it).
-{{#if (eq ui_automation_tool "playwright")}}
+
+{{#if (eq tester_flow "web_playwright")}}
+### Flow: web_playwright (Next.js / Vite / web app driven via Playwright or Chrome MCP)
+
 2. Start the dev server detached and stash its PID for cleanup:
    ```bash
    (npm run dev >/tmp/night-shift-devserver.log 2>&1 &) && echo $! > /tmp/night-shift-devserver.pid
    ```
 3. Wait for it to be up (poll the configured URL until 200 OK or 30s timeout).
 4. Use `mcp__claude-in-chrome__navigate` or `mcp__playwright__*` to open the affected route.
-5. Use `find` / `read_page` / `javascript_tool` to inspect actual rendered state.
+5. Use `find` / `read_page` / `javascript_tool` to inspect actual rendered state. **Never derive selectors from a screenshot** — use the DOM-aware tools.
 6. Take a screenshot before + after the affected interaction.
 7. Compare observed vs expected. Note any discrepancies.
 {{/if}}
-{{#if (eq ui_automation_tool "argent")}}
-2. Boot the simulator: `mcp__argent__boot-device`.
-3. Launch the app: `mcp__argent__launch-app` with the project's bundle ID.
-4. Discovery: `mcp__argent__describe` or `debugger-component-tree` to find UI elements.
+
+{{#if (eq tester_flow "rn_argent")}}
+### Flow: rn_argent (React Native app via argent simulator/emulator)
+
+2. Boot the simulator/emulator: `mcp__argent__boot-device`.
+3. Launch the app: `mcp__argent__launch-app` with the project's bundle ID / package name.
+4. **Element discovery** — RN-aware tools available:
+   - **Preferred:** `mcp__argent__debugger-component-tree` (gives React component names + tap coords; needs Metro connected)
+   - **Fallback:** `mcp__argent__describe` (works without Metro; accessibility tree)
+   - Never guess coordinates from a screenshot. If a tap fails twice at the same coords, re-run discovery.
 5. Interact (tap/swipe/type) to reproduce the affected flow.
 6. Capture screenshots at decision points (pass `scale: 0.3` to stay under the 32MB request limit).
 7. Compare observed behavior with expected.
 {{/if}}
-{{#if (eq ui_automation_tool "computer_use")}}
-2. Ensure the target app is running (if not: `mcp__computer-use__open_application`). If you don't know the app, the affected screen description from the orchestrator tells you which one — match it to `list_granted_applications`.
+
+{{#if (eq tester_flow "ios_argent")}}
+### Flow: ios_argent (native iOS Swift app via argent iOS simulator)
+
+2. Boot the iOS simulator: `mcp__argent__boot-device` (pass a UDID from `list-devices`).
+3. Launch the app: `mcp__argent__launch-app` with the bundle ID from the Xcode project.
+4. **Element discovery** — native iOS only (no Metro / no React tree):
+   - **Preferred:** `mcp__argent__describe` (AXRuntime accessibility tree; includes system dialogs)
+   - **Richer:** `mcp__argent__native-describe-screen` with explicit `bundleId` (full UIKit properties — `accessibilityIdentifier`, `viewClassName`)
+   - Do NOT call `debugger-component-tree` — there is no Metro to attach to.
+5. Interact (tap/swipe/type) via `gesture-tap` / `gesture-swipe` / `keyboard`. Coords are normalized [0,1].
+6. Capture screenshots at decision points (`scale: 0.3`).
+7. Compare observed behavior with expected.
+{{/if}}
+
+{{#if (eq tester_flow "android_argent")}}
+### Flow: android_argent (native Android Kotlin app via argent Android emulator)
+
+2. Boot the Android emulator: `mcp__argent__boot-device` with an `avdName` from `list-devices`. Boots take 2–10 minutes cold; check `booted: true` in the response.
+3. Install/launch the app: `mcp__argent__launch-app` with the package name (`applicationId` from `app/build.gradle.kts`).
+4. **Element discovery** — Android `uiautomator dump` via `mcp__argent__describe`. There is no Metro or React tree available.
+   - Use `describe` for the accessibility hierarchy + tap coords (normalized [0,1]).
+   - `native-describe-screen` / native-devtools-status / native-find-views are **iOS-only** — do NOT call them on Android.
+5. Interact via `gesture-tap` / `gesture-swipe` / `keyboard` / `button` (e.g. `back`, `home`).
+6. Capture screenshots at decision points (`scale: 0.3`).
+7. If the affected flow requires an Espresso test rather than manual exercise, run the instrumented test directly via the project's `connectedAndroidTest` task and parse its XML output; argent is for ad-hoc reproduction.
+8. Compare observed behavior with expected.
+{{/if}}
+
+{{#if (eq tester_flow "desktop_computer_use")}}
+### Flow: desktop_computer_use (native desktop app via macOS computer-use)
+
+2. Ensure the target app is running (if not: `mcp__computer-use__open_application`). The affected-screen description from the orchestrator tells you which app — match it to `list_granted_applications`.
 3. Request access for the app: `mcp__computer-use__request_access` with the app name. Stop if user-declined.
 4. `mcp__computer-use__screenshot` baseline. Cap zoom so a single screen ≤ 1MB.
 5. Use `find` (preferred — DOM-aware on browsers/Electron) or coordinate-driven `left_click` + `type` to drive the affected interaction.
@@ -77,7 +121,7 @@ Use these to log in if the affected flow requires it. Never log the password val
 
 {{#if (eq ui_automation_tool "argent")}}
 ```bash
-# Stop simulator-servers
+# Stop simulator/emulator servers
 mcp__argent__stop-all-simulator-servers 2>/dev/null || true
 ```
 {{/if}}

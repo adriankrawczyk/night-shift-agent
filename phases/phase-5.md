@@ -52,6 +52,32 @@ Single-select (one tool per verify-loop keeps orchestration simple). Options:
 
 Persist `.ui_automation = "argent|playwright|computer_use|none"`.
 
+**Derive `tester_flow`** (consumed by `subagent-tester.md.template` to render the correct discovery + interaction steps per platform). One of:
+- `rn_argent` — argent + React Native (stack=react-native OR framework=expo OR primary project has `react-native` dependency)
+- `ios_argent` — argent + native iOS (stack=swift / objective-c, framework includes `ios-native`, project has `*.xcodeproj` / `Package.swift` for iOS)
+- `android_argent` — argent + native Android (stack=kotlin / java, framework includes `android-native`, project has `app/build.gradle*` + `AndroidManifest.xml`)
+- `web_playwright` — playwright (any stack with browser DOM)
+- `desktop_computer_use` — computer_use (universal fallback)
+
+Derivation:
+```bash
+case "$(jq -r '.ui_automation' "$ANSWERS_JSON")" in
+  argent)
+    P0_STACK=$(jq -r '.projects[0].stack' "$ANSWERS_JSON")
+    P0_FW=$(jq -r '.projects[0].framework' "$ANSWERS_JSON")
+    case "$P0_STACK:$P0_FW" in
+      react-native:*|*:expo|*:react-native) FLOW="rn_argent" ;;
+      swift:*|objective-c:*|*:ios-native)   FLOW="ios_argent" ;;
+      kotlin:*|java:*|*:android-native)     FLOW="android_argent" ;;
+      *) FLOW="rn_argent" ;;  # fallback for legacy "argent assumed RN" installs
+    esac ;;
+  playwright)    FLOW="web_playwright" ;;
+  computer_use)  FLOW="desktop_computer_use" ;;
+  *)             FLOW="" ;;  # no tester subagent will be rendered
+esac
+jq --arg f "$FLOW" '.tester_flow = $f' "$ANSWERS_JSON" > "$ANSWERS_JSON.tmp" && mv "$ANSWERS_JSON.tmp" "$ANSWERS_JSON"
+```
+
 **Recommendation overlay** (additive hint, not a gate — surface in option labels):
 - If scan detected a mobile project (RN / native iOS / native Android) → prefix Argent option with "(recommended for your stack)"
 - If scan detected web (React/Vue/Svelte/Angular with browser DOM) → prefix Playwright option with "(recommended for your stack)"

@@ -269,6 +269,7 @@ MAX_RESUME_ATTEMPTS=3                          # constant — three sub-runs wit
 | `meta_agent_enabled` | `meta_agent != "off"` | bool |
 | `multi_machine` | `execution_mode == "both"` | bool |
 | `ui_automation_enabled` | `ui_automation_tool != "none"` | bool |
+| `tester_flow` | derived from `(ui_automation_tool, projects[0].stack, projects[0].framework)` per phase-5.md table | one of: `rn_argent`, `ios_argent`, `android_argent`, `web_playwright`, `desktop_computer_use`, or empty string when ui_automation_enabled=false. Consumed by `subagent-tester.md.template` to dispatch per-platform discovery+interaction steps without hardcoding RN/iOS. |
 | `reviewer_persona_enabled` | `$ANSWERS_JSON.reviewer_persona.enabled == true` | bool |
 | `has_specific_days` | `schedule.days.length > 0 && schedule.days.length < 7` | bool — when true, launchd plist emits per-day dicts; when false (every day) emits one dict |
 | `snapshot_user_repo` | `true` by default unless user opted out in Q6 dialog | bool — defaults to ON for safety (user's tree is always snapshotted before agent edits). User can opt out only via direct yaml edit (no Q exposes this — design choice for safety). |
