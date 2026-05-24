@@ -57,4 +57,19 @@ Fixed: Q0.4 gh_repo schema; phase-2 adds services_to_install + write_capable_too
 ### Batch 2 — Rendered-artifact + recipe-trigger + schedule + os + MCP (commit 4ecf1f7)
 Fixed: P12 stall watchdog placeholder; P9 caffeinate double-inlined kill; phase-1 trigger catalog massively extended (+has_open_non_draft_prs_without_recent_reviews + has_lint_config + has_typecheck_config + has_open_gh_issues + has_slack + reviewer_persona_enabled + generic user_mentioned:keyword); schedule.time HH:MM split into hour/minute integers; uname -s translates Darwin→macOS; ALL 18 MCP install commands now have -s user flag.
 
+### Batch 3 — ub_restore, mobile_preflight, helpers, brief_length, awk portability (commit 6bc079e)
+ub_snapshot now writes .active-branch BEFORE stashing so ub_restore can return to original; mobile_preflight detects expo vs bare RN vs neither (was unconditionally expo); META_PROMPT documents (eq) and recipe_includes helpers; brief_length rendering fixed; maintenance-bot awk → portable git committerdate:unix arithmetic.
+
+### Batch 4 — coord_gist_id + meta-agent + plist Weekday + PATH (commit 765363d)
+coord_gist_id is created lazily by run.sh first run via gh gist create (was baked empty at install); meta-agent.sh PR_OUT/PR_ERR mktemps now trap-cleaned; predictive-skip + daily-meta plists honor schedule.days; launchd-routine.plist got PATH env var.
+
+### Batch 5 — subagent_type names, notify default, uninstall bootout (commit 9666d8e)
+prompt.md SUBAGENT USAGE lists exact subagent_type names (night-shift-coder etc.); notify-watcher patches count has :-0 default; readme-user uninstall switched to modern bootout/bootstrap.
+
+### Batch 6 — lean_threshold_min precomputed (commits 7613d18 + 54a80f7)
+Dropped inline {{ hard_wall_minutes * 0.6 | round }} arithmetic; pre-computed as lean_threshold_min in render context. Fixtures + validate.sh inline ctx-builder both updated.
+
+### Batch 7 — stack detection + meta-agent dep check + comment + dup fixes (commit 11e1d11)
+phase-0.md stack catalog now covers svelte/solid/astro/remix/nuxt/django/flask/fastapi/rails/sinatra/laravel/symfony/phoenix/spring-boot/haskell/zig/crystal/ocaml/scala/julia/nix. Unknown stack → graceful fallback (stack:"unknown", framework:"", verify_methods:[]). meta-agent.sh aborts cleanly if jq/gh/claude missing. predictive-skip comment fixed (was "5 min", actually ~1h). LOCK_DIR/LOCK_PID_FILE duplicate removed.
+
 
