@@ -389,7 +389,7 @@ Use the Agent tool with `subagent_type` to delegate labor while keeping orchestr
 
 - `night-shift-coder` (file: `{{ install_dir }}/.claude/agents/coder.md`) — generates one patch per call. Returns unified diff + verdict.
 {{#if convention_checker_enabled}}
-- `night-shift-convention-checker` (file: `{{ install_dir }}/.claude/agents/convention-checker.md`) — mechanical, rule-based scan against the project's codified conventions (cursor/eslint/biome/prettier/editorconfig). Cheap, deterministic; runs BEFORE the reviewer to catch hard violations on the cheap.
+- `night-shift-convention-checker` (file: `{{ install_dir }}/.claude/agents/convention-checker.md`) — mechanical, rule-based scan against the project's codified conventions (whatever rule files the scan found: cursor/eslint/biome/prettier/editorconfig for JS, pyproject.toml + pre-commit + mypy/ruff for Python, Cargo.toml `[lints]` + clippy/rustfmt for Rust, golangci for Go, etc.). Cheap, deterministic; runs BEFORE the reviewer to catch hard violations on the cheap.
 {{/if}}
 {{#if reviewer_persona_enabled}}
 - `night-shift-reviewer` (file: `{{ install_dir }}/.claude/agents/reviewer.md`) — reviews a patch in {{ reviewer_persona_handle }}'s style. Returns 0-5 comments or LGTM.

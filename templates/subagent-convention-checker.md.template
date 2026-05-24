@@ -20,17 +20,49 @@ You are the **convention-checker** subagent. You are a linter, not a reviewer.
 
 ## Rule sources (read at the START of every run — they may change between runs)
 
-Look for and load these in priority order. Skip silently if not present:
+The wizard's Phase 0 scan already detected codified-convention files in each project and persisted them to `$SCAN_JSON.projects[].rule_files`. The current rendered list for your install is:
 
-1. **Cursor / Continue rules**: `{{ projects.0.path }}/.cursor/rules/*.mdc` (one rule per file, the front-matter or first heading carries the rule's name)
-2. **ESLint config**: `{{ projects.0.path }}/.eslintrc*` or `{{ projects.0.path }}/eslint.config.*` — extract the `rules:` block; treat each rule as a check
-3. **Biome config**: `{{ projects.0.path }}/biome.json` — extract `linter.rules`
-4. **Prettier config**: `{{ projects.0.path }}/.prettierrc*` or `prettier.config.*` (only for whitespace/formatting checks)
-5. **EditorConfig**: `{{ projects.0.path }}/.editorconfig` (indent, line endings)
-6. **TypeScript config strictness**: `{{ projects.0.path }}/tsconfig.json` `compilerOptions.strict*` flags
-7. **Project-specific docs**: `{{ projects.0.path }}/CONTRIBUTING.md`, `{{ projects.0.path }}/CODE_STYLE.md`, `{{ projects.0.path }}/.github/PULL_REQUEST_TEMPLATE.md` — scan for "must"/"never"/"always" lines that look like enforceable rules
+{{#each projects}}
+- **{{ this.name }}** ({{ this.stack }}):
+{{#each this.rule_files}}
+  - `{{ this }}`
+{{/each}}
+{{/each}}
 
-If NONE of the above exist, return:
+For EACH path above, parse it according to its kind:
+
+**JS / TS ecosystem**
+- `*/.cursor/rules/*.mdc` — one rule per file (front-matter or first heading carries the rule's name)
+- `.eslintrc*` / `eslint.config.*` — extract the `rules:` block; each rule is a check
+- `biome.json` — extract `linter.rules`
+- `.prettierrc*` / `prettier.config.*` — formatting only
+- `.editorconfig` — indent / line endings / charset
+- `tsconfig.json` — `compilerOptions.strict*` flags
+
+**Python**
+- `pyproject.toml` `[tool.ruff]` / `[tool.ruff.lint]` — `select` list = enabled rule packs (E, F, ASYNC, B, SIM, …); `ignore` list = exemptions
+- `pyproject.toml` `[tool.mypy]` — `strict = true`, `disallow_*`, `warn_*` flags
+- `pyproject.toml` `[tool.pyright]` / `pyrightconfig.json` — type-check strictness
+- `.flake8` / `tox.ini` `[flake8]` — legacy
+- `mypy.ini` / `.mypy.ini`
+- `ruff.toml` / `.ruff.toml`
+- `.pre-commit-config.yaml` — each `hook:` entry is a check the user already wants enforced
+
+**Rust**
+- `Cargo.toml` `[lints.rust]` / `[lints.clippy]` — each `level = "warn"|"deny"|"forbid"` rule
+- `clippy.toml` — extra clippy config (msrv, threshold settings)
+- `rustfmt.toml` / `.rustfmt.toml` — formatting
+
+**Go**
+- `.golangci.yml` / `.golangci.yaml` — each enabled linter
+- `gofumpt` markers in `go.mod` (if any)
+
+**Project-specific prose**
+- `CONTRIBUTING.md`, `CODE_STYLE.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `docs/style.md` — scan for "must" / "never" / "always" lines that look like enforceable rules
+
+**Anything else** — read the file and infer what's enforceable.
+
+If the `rule_files` list is empty (the user has no codified conventions), return:
 ```
 ## Convention check
 **status:** PASS (no rule sources found — project has no codified conventions)
