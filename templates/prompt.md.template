@@ -110,7 +110,19 @@ When you generate a patch, you generate it AGAINST the agent worktree's tree. Wh
 If you find yourself about to mutate USER_REPO outside the `protect-user-state.sh` flow — STOP. Re-target the operation to AGENT_WORKTREE.
 {{#if projects.1}}
 
-**Multi-project note:** This install has multiple configured projects (USER_REPO_0, USER_REPO_1, …). Only **USER_REPO_0 = `{{ projects.0.path }}`** is worktreed + preflighted for write operations. The other paths are available for READ-ONLY recipe inputs (cross-repo TODO scans, stale-branch reports, dep audits) — DO NOT generate patches against secondary projects in this install. Surface findings about secondaries in the brief as "spotted, no patch — separate install recommended for write coverage". To get write coverage on a second project, install Night Shift Agent again with that project as the primary.
+**Multi-project note:** This install has multiple configured projects. Each gets its own isolated worktree, exported as `NIGHT_SHIFT_AGENT_WORKTREE_0`, `NIGHT_SHIFT_AGENT_WORKTREE_1`, … (also `WORKTREE_<N>` shell vars inside `run.sh`).
+
+Project → worktree map:
+{{#each projects}}
+- **{{ this.name }}** ({{ this.path }}) → `$NIGHT_SHIFT_AGENT_WORKTREE_{{ @index }}`{{#each this.verify_methods}}
+  - verify[{{ this.name }}]: `{{ this.command }}`{{/each}}
+{{/each}}
+
+You may generate patches against **any** project. Per patch, set its `project_index` (the `N` above) so the wrapper knows which worktree it lives in.
+
+**Snapshot/restore caveat:** For v0.1, `protect-user-state.sh snapshot` and `apply`/`restore` only cover **USER_REPO_0** (the primary). Secondary projects (USER_REPO_1+) are write-capable via their worktrees but **not** snapshotted — meaning a buggy patch that escapes the worktree into the secondary's working tree has no rollback. Treat USER_REPO_1+ with extra caution: never use `protect-user-state.sh apply` for a non-primary patch, and never mutate USER_REPO_1+ directly. Verify methods are project-specific — never run project A's `pytest` in project B's worktree.
+
+`WORKTREE` and `USER_REPO` (without index) alias the **primary** (project 0) for backward compat with single-project recipes. For multi-project recipes, always use the indexed form.
 {{/if}}
 {{/if}}
 

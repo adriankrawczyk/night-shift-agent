@@ -143,66 +143,102 @@ log_both "Snapshotting user repo state"
 {{ pattern.P10 }}
 ub_snapshot "pre-run-${RUN_TS}"
 
-# === WORKTREE SETUP — isolated checkout so agent never touches USER_REPO ===
+# === WORKTREE SETUP — isolated checkout per project so agent never touches USER_REPO ===
 # Snapshot above is the rollback safety net; this is the prevention. Agent operates
-# in a detached worktree at $WORKTREE; USER_REPO stays untouched (and matches the
-# baseline snapshot above) except for the protect-user-state.sh apply/restore window.
+# in detached worktrees at $WORKTREE_<N>; each USER_REPO_<N> stays untouched
+# (matches its baseline snapshot) except for the protect-user-state.sh apply/restore window.
 WORKTREE_PARENT="$ROUTINE_DIR/worktree"
-WORKTREE="$WORKTREE_PARENT/$(basename "$USER_REPO")"
-export NIGHT_SHIFT_AGENT_WORKTREE="$WORKTREE"
-
-# Prune BEFORE creating to clear half-removed prior worktrees that would block naming.
-git -C "$USER_REPO" worktree prune 2>>"$LOG" || true
 mkdir -p "$WORKTREE_PARENT"
 
-if [[ ! -e "$WORKTREE/.git" ]]; then
-  # If the directory exists as a non-worktree husk (rm .git happened), wipe it
-  # first — `git worktree add` aborts on "<path> already exists" otherwise.
-  if [[ -d "$WORKTREE" ]]; then
-    log_both "Removing stale non-git worktree husk at $WORKTREE"
-    emit_json warn worktree_husk_removed path="$WORKTREE"
-    rm -rf "$WORKTREE"
+setup_worktree() {
+  local idx="$1" user_repo="$2"
+  local wt
+  wt="$WORKTREE_PARENT/$(basename "$user_repo")"
+  # Export per-project worktree path so the agent can target any project.
+  export "NIGHT_SHIFT_AGENT_WORKTREE_${idx}=$wt"
+  # First-project alias for backward compat with single-project guidance.
+  if [[ "$idx" == "0" ]]; then
+    export NIGHT_SHIFT_AGENT_WORKTREE="$wt"
   fi
-  log_both "Creating fresh worktree at $WORKTREE"
-  emit_json info worktree_create path="$WORKTREE"
-  git -C "$USER_REPO" fetch origin --quiet 2>>"$LOG" || true
-  DEFAULT_BRANCH="$(git -C "$USER_REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)"
-  if ! git -C "$USER_REPO" worktree add --detach "$WORKTREE" "origin/$DEFAULT_BRANCH" 2>>"$LOG"; then
-    log_both "ERROR: worktree add failed"
-    emit_json error worktree_add_failed
-    exit 1
-  fi
-else
-  # Reset worktree to clean state so prior crashed-run state doesn't leak forward.
-  git -C "$WORKTREE" reset --hard --quiet 2>>"$LOG" || true
-  git -C "$WORKTREE" clean -fdx --quiet 2>>"$LOG" || true
 
-  # Verify reset succeeded. Rare failure: permission glitch on .git/index lock
-  # leaves the tree LOOKING reset but actually dirty — next run inherits the rot.
-  # Escalate to full worktree recreate (~5min tax, kills node_modules cache,
-  # bulletproof). Detect via porcelain status + HEAD-vs-origin/main SHA compare.
-  POST_RESET_DIRTY="$(git -C "$WORKTREE" status --porcelain 2>/dev/null | head -5 | tr '\n' ';')"
-  POST_RESET_HEAD_SHA="$(git -C "$WORKTREE" rev-parse HEAD 2>/dev/null || echo none)"
-  ORIGIN_MAIN_SHA="$(git -C "$WORKTREE" rev-parse "origin/$DEFAULT_BRANCH" 2>/dev/null || echo none)"
-  if [[ -n "$POST_RESET_DIRTY" || "$POST_RESET_HEAD_SHA" != "$ORIGIN_MAIN_SHA" ]]; then
-    log_both "WARNING: worktree still dirty/wrong-HEAD after reset (dirty=$POST_RESET_DIRTY head=${POST_RESET_HEAD_SHA:0:7} expected=${ORIGIN_MAIN_SHA:0:7}) — escalating to full worktree recreate"
-    emit_json warn worktree_reset_failed dirty="$POST_RESET_DIRTY" head="${POST_RESET_HEAD_SHA:0:7}" expected="${ORIGIN_MAIN_SHA:0:7}"
-    {
-      git -C "$USER_REPO" worktree remove --force "$WORKTREE" 2>&1 || true
-      rm -rf "$WORKTREE" 2>&1 || true  # belt-and-suspenders if remove leaves directory
-      git -C "$USER_REPO" worktree prune 2>&1 || true
-      git -C "$USER_REPO" worktree add --detach "$WORKTREE" "origin/$DEFAULT_BRANCH" 2>&1
-    } 2>&1 | head -30 >>"$LOG"
-    POST_RECREATE_DIRTY="$(git -C "$WORKTREE" status --porcelain 2>/dev/null | head -5 | tr '\n' ';')"
-    if [[ -n "$POST_RECREATE_DIRTY" ]]; then
-      log_both "ERROR: worktree force-recreate also failed (dirty=$POST_RECREATE_DIRTY) — aborting run"
-      emit_json error worktree_recreate_failed dirty="$POST_RECREATE_DIRTY"
-      exit 1
-    fi
-    log_both "Worktree recreate OK (node_modules cache lost — agent will reinstall)"
-    emit_json info worktree_recreate_ok
+  # Skip if user_repo isn't a git repo (e.g. ad-hoc folder) — no worktree possible.
+  if ! git -C "$user_repo" rev-parse --git-dir >/dev/null 2>&1; then
+    log_both "Skipping worktree for $user_repo (not a git repo)"
+    emit_json warn worktree_skip_nongit path="$user_repo" idx="$idx"
+    eval "WORKTREE_${idx}=\"$user_repo\""  # fall back to direct path; agent will know
+    return 0
   fi
-fi
+
+  # Prune BEFORE creating to clear half-removed prior worktrees that would block naming.
+  git -C "$user_repo" worktree prune 2>>"$LOG" || true
+
+  if [[ ! -e "$wt/.git" ]]; then
+    if [[ -d "$wt" ]]; then
+      log_both "Removing stale non-git worktree husk at $wt"
+      emit_json warn worktree_husk_removed path="$wt" idx="$idx"
+      rm -rf "$wt"
+    fi
+    log_both "Creating fresh worktree[$idx] at $wt"
+    emit_json info worktree_create path="$wt" idx="$idx"
+    git -C "$user_repo" fetch origin --quiet 2>>"$LOG" || true
+    local default_branch
+    default_branch="$(git -C "$user_repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)"
+    if ! git -C "$user_repo" worktree add --detach "$wt" "origin/$default_branch" 2>>"$LOG"; then
+      log_both "ERROR: worktree[$idx] add failed for $user_repo"
+      emit_json error worktree_add_failed idx="$idx"
+      # Primary failure aborts the run; secondary failures degrade to read-only.
+      [[ "$idx" == "0" ]] && exit 1
+      return 0
+    fi
+    eval "DEFAULT_BRANCH_${idx}=\"$default_branch\""
+    if [[ "$idx" == "0" ]]; then
+      # shellcheck disable=SC2034  # exported via prompt/recipe-level scripts
+      DEFAULT_BRANCH="$default_branch"
+    fi
+  else
+    git -C "$wt" reset --hard --quiet 2>>"$LOG" || true
+    git -C "$wt" clean -fdx --quiet 2>>"$LOG" || true
+
+    local default_branch post_reset_dirty post_reset_head_sha origin_main_sha
+    default_branch="$(git -C "$user_repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)"
+    post_reset_dirty="$(git -C "$wt" status --porcelain 2>/dev/null | head -5 | tr '\n' ';')"
+    post_reset_head_sha="$(git -C "$wt" rev-parse HEAD 2>/dev/null || echo none)"
+    origin_main_sha="$(git -C "$wt" rev-parse "origin/$default_branch" 2>/dev/null || echo none)"
+    if [[ -n "$post_reset_dirty" || "$post_reset_head_sha" != "$origin_main_sha" ]]; then
+      log_both "WARNING: worktree[$idx] still dirty/wrong-HEAD (dirty=$post_reset_dirty head=${post_reset_head_sha:0:7} expected=${origin_main_sha:0:7}) — escalating to full recreate"
+      emit_json warn worktree_reset_failed idx="$idx" dirty="$post_reset_dirty" head="${post_reset_head_sha:0:7}" expected="${origin_main_sha:0:7}"
+      {
+        git -C "$user_repo" worktree remove --force "$wt" 2>&1 || true
+        rm -rf "$wt" 2>&1 || true
+        git -C "$user_repo" worktree prune 2>&1 || true
+        git -C "$user_repo" worktree add --detach "$wt" "origin/$default_branch" 2>&1
+      } 2>&1 | head -30 >>"$LOG"
+      local post_recreate_dirty
+      post_recreate_dirty="$(git -C "$wt" status --porcelain 2>/dev/null | head -5 | tr '\n' ';')"
+      if [[ -n "$post_recreate_dirty" ]]; then
+        log_both "ERROR: worktree[$idx] force-recreate also failed (dirty=$post_recreate_dirty)"
+        emit_json error worktree_recreate_failed idx="$idx" dirty="$post_recreate_dirty"
+        [[ "$idx" == "0" ]] && exit 1
+        return 0
+      fi
+      log_both "Worktree[$idx] recreate OK (deps cache lost — preflight will rebuild)"
+      emit_json info worktree_recreate_ok idx="$idx"
+    fi
+    eval "DEFAULT_BRANCH_${idx}=\"$default_branch\""
+    if [[ "$idx" == "0" ]]; then
+      # shellcheck disable=SC2034  # exported via prompt/recipe-level scripts
+      DEFAULT_BRANCH="$default_branch"
+    fi
+  fi
+
+  eval "WORKTREE_${idx}=\"$wt\""
+}
+
+{{#each projects}}
+setup_worktree "{{ @index }}" "$USER_REPO_{{ @index }}"
+{{/each}}
+# Primary-project alias (used by single-project guidance in prompt.md)
+WORKTREE="${WORKTREE_0}"
 {{/if}}
 
 # === STACK PREFLIGHT — install deps in worktree so verify commands work ===
@@ -212,7 +248,8 @@ fi
 # silently if the lockfile / tool isn't there. Failures non-fatal — agent can
 # still self-recover, just slower.
 stack_preflight() {
-  cd "$WORKTREE" || return 0
+  local target_dir="${1:-$WORKTREE}"
+  cd "$target_dir" || return 0
   # Node ecosystem
   if [[ -f package-lock.json ]] && command -v npm >/dev/null 2>&1; then
     [[ -d node_modules ]] || { log_both "Preflight: npm install"; npm install --no-audit --no-fund --silent 2>>"$LOG" || true; }
@@ -268,9 +305,11 @@ stack_preflight() {
   if [[ -f Gemfile.lock ]] && command -v bundle >/dev/null 2>&1; then
     log_both "Preflight: bundle install"; bundle install --quiet 2>>"$LOG" || true
   fi
-  emit_json info stack_preflight_done
+  emit_json info stack_preflight_done dir="$target_dir"
 }
-stack_preflight
+{{#each projects}}
+stack_preflight "${WORKTREE_{{ @index }}:-}"
+{{/each}}
 
 {{#if (eq ui_automation_tool "argent")}}
 # === ARGENT PROBE — side-channel ground truth ===
