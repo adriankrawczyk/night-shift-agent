@@ -164,7 +164,7 @@ Budgets:
 - After STEP 2 GATHER (target <30 min): if ELAPSED_MIN > 60 → log warning, continue.
 - STEP 3 per-PR / per-bug analysis: 30 min soft cap per item.
 - Reserve last 20 min for STEP 4-7 (brief + output) regardless of hard wall.
-- LEAN MODE at ELAPSED_MIN > {{ hard_wall_minutes * 0.6 | round }}: stop reading new files. Work with `/tmp/night-shift-agent/run-state.json` only.
+- LEAN MODE at ELAPSED_MIN > {{ lean_threshold_min }}: stop reading new files. Work with `/tmp/night-shift-agent/run-state.json` only.
 - HARD WALL at ELAPSED_MIN > {{ hard_wall_minutes }}: stop all in-flight, finalize, exit.
 
 === STEP 0 — Initialize ===

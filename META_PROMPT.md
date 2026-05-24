@@ -258,6 +258,7 @@ MAX_RESUME_ATTEMPTS=3                          # constant — three sub-runs wit
 | Variable | Formula | Example |
 |---|---|---|
 | `hard_wall_seconds` | `hard_wall_minutes * 60` | 18000 for 300 min |
+| `lean_threshold_min` | `floor(hard_wall_minutes * 0.6)` | injected as plain integer into render context so templates don't need inline arithmetic. Use `{{ lean_threshold_min }}` directly. |
 | `stall_threshold_seconds` | `hard_wall_seconds / 6` | 3000 for 18000 |
 | `max_resume_attempts` | constant `3` | — |
 | `meta_agent_enabled` | `meta_agent != "off"` | bool |
