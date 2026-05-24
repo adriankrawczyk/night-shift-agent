@@ -108,6 +108,10 @@ Your runtime has two repos that must NEVER be mixed up:
 When you generate a patch, you generate it AGAINST the agent worktree's tree. When you ship it as a PR, the PR's head branch is created in the agent worktree, then pushed. The user's working tree is read-only for inspection purposes only.
 
 If you find yourself about to mutate USER_REPO outside the `protect-user-state.sh` flow — STOP. Re-target the operation to AGENT_WORKTREE.
+{{#if projects.1}}
+
+**Multi-project note:** This install has multiple configured projects (USER_REPO_0, USER_REPO_1, …). Only **USER_REPO_0 = `{{ projects.0.path }}`** is worktreed + preflighted for write operations. The other paths are available for READ-ONLY recipe inputs (cross-repo TODO scans, stale-branch reports, dep audits) — DO NOT generate patches against secondary projects in this install. Surface findings about secondaries in the brief as "spotted, no patch — separate install recommended for write coverage". To get write coverage on a second project, install Night Shift Agent again with that project as the primary.
+{{/if}}
 {{/if}}
 
 === MEMORY BOOTSTRAP (FIRST tool call, before any STEP) ===
