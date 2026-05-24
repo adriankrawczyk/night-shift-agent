@@ -383,18 +383,19 @@ For full per-recipe instructions, read the recipe doc relevant to what you're do
 
 === SUBAGENT USAGE ===
 
-Use the Agent tool with subagent_type to delegate labor while keeping orchestration in the main thread.
+Use the Agent tool with `subagent_type` to delegate labor while keeping orchestration in the main thread.
 
-Available subagents (read their `.md` files for full prompts):
-- `coder` — generates one patch per call. Returns unified diff + verdict.
+**Exact subagent_type names** (must match the `name:` frontmatter in each subagent file — Claude Code's Agent tool looks these up by name, not path):
+
+- `night-shift-coder` (file: `{{ install_dir }}/subagents/coder.md`) — generates one patch per call. Returns unified diff + verdict.
 {{#if reviewer_persona_enabled}}
-- `reviewer` — reviews a patch in {{ reviewer_persona_handle }}'s style. Returns 0-5 comments or LGTM.
+- `night-shift-reviewer` (file: `{{ install_dir }}/subagents/reviewer.md`) — reviews a patch in {{ reviewer_persona_handle }}'s style. Returns 0-5 comments or LGTM.
 {{/if}}
 {{#if ui_automation_enabled}}
-- `tester` — runs UI live-verify on a patch. Returns PASS/FAIL with screenshots.
+- `night-shift-tester` (file: `{{ install_dir }}/subagents/tester.md`) — runs UI live-verify on a patch. Returns PASS/FAIL with screenshots.
 {{/if}}
 {{#if recipe_includes "bug_triager"}}
-- `triager` — ranks bug feed by tractability. Runs ONCE per run before bug loop.
+- `night-shift-triager` (file: `{{ install_dir }}/subagents/triager.md`) — ranks bug feed by tractability. Runs ONCE per run before bug loop.
 {{/if}}
 
 Pipeline per patch:

@@ -65,18 +65,22 @@ The wizard reads your current setup and lets you change individual decisions.
 ## Stopping the agent
 
 ```bash
-# Disable scheduled runs
-launchctl unload ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist
+# Disable scheduled runs (modern launchctl — load/unload are deprecated)
+launchctl bootout "gui/$(id -u)/com.{{ user_short }}.night-shift-routine"
 
 # Re-enable
-launchctl load ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist
 ```
 
 ## Uninstalling
 
+Easiest: `night-shift uninstall` (the CLI helper unloads every plist this install created + removes them — keeps your install dir + data).
+
+Manual:
+
 ```bash
 # Stop scheduled runs
-launchctl unload ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist 2>/dev/null
+launchctl bootout "gui/$(id -u)/com.{{ user_short }}.night-shift-routine" 2>/dev/null
 rm ~/Library/LaunchAgents/com.{{ user_short }}.night-shift-routine.plist
 
 # Remove install

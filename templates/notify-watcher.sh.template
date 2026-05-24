@@ -60,7 +60,7 @@ case "$prev_state→$new_state" in
     ;;
   "running→success")
     patches=$(find "$INSTALL_DIR/patches/$TODAY" -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
-    notify "Night Shift Agent ✅" "Run complete. ${patches} patches generated."
+    notify "Night Shift Agent ✅" "Run complete. ${patches:-0} patches generated."
     ;;
   "running→failed")
     notify "Night Shift Agent ❌" "Run failed. Check the log."
