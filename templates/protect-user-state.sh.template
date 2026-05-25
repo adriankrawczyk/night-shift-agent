@@ -14,6 +14,9 @@
 #   recover-orphan        After a crash mid-mutation, restore from active marker.
 
 set -uo pipefail
+# zsh-specific: make arrays 0-indexed (bash-like) and unmatched globs expand
+# to empty rather than erroring. Both subcommands below rely on these.
+setopt KSH_ARRAYS NULL_GLOB 2>/dev/null || true
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 ROUTINE_DIR="${NIGHT_SHIFT_DIR:-{{ install_dir }}}"
@@ -23,13 +26,28 @@ USER_REPO_{{ @index }}="${NIGHT_SHIFT_PROJECT_{{ @index }}:-{{ this.path }}}"
 USER_REPO="${USER_REPO_0}"
 
 # Ordered list of all configured projects. Single-project users get just one
-# entry → every "for_each_project" loop iterates once → behaves exactly as the
-# pre-v0.1 single-project script.
+# entry → every per-project loop iterates once → behaves as the single-project
+# case. Multi-project users get N entries; subcommands take an optional
+# `--project=N` flag (default 0 = primary).
 ALL_USER_REPOS=({{#each projects}}"$USER_REPO_{{ @index }}" {{/each}})
 
 CHECKPOINTS_DIR="$ROUTINE_DIR/checkpoints"
 ACTIVE_MARKER="$CHECKPOINTS_DIR/.active"
 mkdir -p "$CHECKPOINTS_DIR"
+
+# NULL_GLOB safety: when zsh expands an unmatched glob to nothing and we pass
+# the empty expansion to `ls -td`, ls defaults to the current directory and we
+# get a phantom "." match. This helper takes a glob *pattern as a string* and
+# expands it via zsh's `${~var}` (force-glob-on-expansion) so the caller can
+# build the pattern with normal interpolation. Returns the most-recent matching
+# dir (by mtime) if any exist, else nothing.
+_find_recent_match() {
+  # shellcheck disable=SC2206,SC2296  # ${~1} is zsh-specific glob-on-expand
+  local matches=( ${~1} )
+  if (( ${#matches[@]} > 0 )) && [[ -d "${matches[0]}" ]]; then
+    ls -td "${matches[@]}" 2>/dev/null | head -1
+  fi
+}
 
 # Per-project subdir naming: `p0/`, `p1/`, …. Files inside are the same
 # layout as the single-project case (orig_head.txt, orig_ref.txt, diff.patch,
@@ -57,43 +75,134 @@ filter_untracked_by_size() {
   done < "$list"
 }
 
+# Resolve --project=<N> flag (or positional default 0) and validate range.
+# Sets $RESOLVED_PROJECT_IDX and $RESOLVED_PROJECT_REPO. Other args left untouched
+# via the caller re-reading "$@" after this consumes the flag.
+_resolve_project_flag() {
+  RESOLVED_PROJECT_IDX=0
+  local arg
+  REMAINING_ARGS=()
+  for arg in "$@"; do
+    case "$arg" in
+      --project=*) RESOLVED_PROJECT_IDX="${arg#--project=}" ;;
+      *) REMAINING_ARGS+=("$arg") ;;
+    esac
+  done
+  if ! [[ "$RESOLVED_PROJECT_IDX" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: --project=<N> must be a non-negative integer, got '$RESOLVED_PROJECT_IDX'" >&2
+    return 2
+  fi
+  if (( RESOLVED_PROJECT_IDX >= ${#ALL_USER_REPOS[@]} )); then
+    echo "ERROR: --project=$RESOLVED_PROJECT_IDX out of range (have ${#ALL_USER_REPOS[@]} projects: indices 0..$((${#ALL_USER_REPOS[@]} - 1)))" >&2
+    return 2
+  fi
+  RESOLVED_PROJECT_REPO="${ALL_USER_REPOS[$RESOLVED_PROJECT_IDX]}"
+}
+
+# Begin a checkpoint on ONE project, writing per-project state under $dir/p<N>/.
+# Multiple sequential begins on different projects under the same <id> accumulate
+# entries in $dir (cmd_restore iterates them all at restore time).
+_begin_one_project() {
+  local id="$1" idx="$2" repo="$3" dir="$4"
+  local pdir
+  pdir="$dir/$(project_subdir_name "$idx")"
+  mkdir -p "$pdir"
+
+  if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "non-git" > "$pdir/skip.txt"
+    echo "$repo" > "$pdir/repo_path.txt"
+    echo "  p$idx: skipped (non-git)"
+    return 0
+  fi
+
+  git -C "$repo" rev-parse HEAD > "$pdir/orig_head.txt" 2>/dev/null
+  git -C "$repo" symbolic-ref --short HEAD > "$pdir/orig_ref.txt" 2>/dev/null || echo "DETACHED" > "$pdir/orig_ref.txt"
+  echo "$repo" > "$pdir/repo_path.txt"
+
+  local stash_msg
+  stash_msg="night-shift-checkpoint-${id}-p${idx}-$(date -u +%FT%TZ)"
+  if git -C "$repo" stash push --include-untracked --quiet -m "$stash_msg" 2>>"$pdir/log.txt"; then
+    echo "$stash_msg" > "$pdir/stash_msg.txt"
+  else
+    echo "no-stash-needed" > "$pdir/stash_msg.txt"
+  fi
+  echo "  p$idx: checkpoint set ($repo)"
+}
+
 cmd_begin() {
+  _resolve_project_flag "$@" || return 2
+  set -- "${REMAINING_ARGS[@]}"
   if [[ $# -lt 1 ]]; then
-    echo "Usage: protect-user-state.sh begin <label>" >&2
+    echo "Usage: protect-user-state.sh begin <label> [--project=N]" >&2
     echo "  <label>: short identifier for this checkpoint (e.g. bug-id, pr-number)" >&2
+    echo "  --project=N (default 0): which configured project to begin on" >&2
     return 2
   fi
   local id="$1"
+  local idx="$RESOLVED_PROJECT_IDX"
+  local repo="$RESOLVED_PROJECT_REPO"
+
+  # Find or create the checkpoint dir. If a prior `begin` already ran with this
+  # id (e.g. user is begin'ing a second project under the same bug id), reuse
+  # that dir; otherwise create a new one.
   local dir
-  dir="$CHECKPOINTS_DIR/begin-$id-$(date -u +%FT%H%M%S)"
-  mkdir -p "$dir"
-
-  # Capture HEAD + branch
-  git -C "$USER_REPO" rev-parse HEAD > "$dir/orig_head.txt" 2>/dev/null
-  git -C "$USER_REPO" symbolic-ref --short HEAD > "$dir/orig_ref.txt" 2>/dev/null || echo "DETACHED" > "$dir/orig_ref.txt"
-
-  # Stash (include untracked)
-  local stash_msg
-  stash_msg="night-shift-checkpoint-${id}-$(date -u +%FT%TZ)"
-  if git -C "$USER_REPO" stash push --include-untracked --quiet -m "$stash_msg" 2>>"$dir/log.txt"; then
-    echo "$stash_msg" > "$dir/stash_msg.txt"
-  else
-    echo "no-stash-needed" > "$dir/stash_msg.txt"
+  dir=$(_find_recent_match "$CHECKPOINTS_DIR/begin-${id}-*")
+  if [[ -z "$dir" || ! -d "$dir" ]]; then
+    dir="$CHECKPOINTS_DIR/begin-$id-$(date -u +%FT%H%M%S)"
+    mkdir -p "$dir"
   fi
 
-  # Active marker
+  _begin_one_project "$id" "$idx" "$repo" "$dir"
+
+  # Active marker: track project list so cmd_restore knows what to undo even
+  # if invoked from a fresh shell.
   cat > "$ACTIVE_MARKER" <<EOF
 {
   "checkpoint_id": "$id",
   "checkpoint_dir": "$dir",
-  "stash_msg": "$stash_msg",
-  "orig_head": "$(cat "$dir/orig_head.txt")",
-  "orig_ref": "$(cat "$dir/orig_ref.txt")",
   "begun_at": "$(date -u +%FT%TZ)"
 }
 EOF
   echo "checkpoint_id=$id"
   echo "checkpoint_dir=$dir"
+  echo "checkpoint_project_idx=$idx"
+}
+
+# Restore ONE project from $pdir. Mirrors the legacy single-project flow but
+# scoped to whichever repo's snapshot lives in $pdir.
+_restore_one_project() {
+  local pdir="$1" idx="$2"
+  [[ -f "$pdir/skip.txt" ]] && { echo "  p$idx: skipped (non-git)"; return 0; }
+  [[ ! -f "$pdir/orig_head.txt" ]] && { echo "  p$idx: missing checkpoint data" >&2; return 1; }
+
+  local repo orig_ref orig_head stash_msg
+  repo=$(cat "$pdir/repo_path.txt" 2>/dev/null)
+  orig_ref=$(cat "$pdir/orig_ref.txt" 2>/dev/null)
+  orig_head=$(cat "$pdir/orig_head.txt" 2>/dev/null)
+  stash_msg=$(cat "$pdir/stash_msg.txt" 2>/dev/null)
+  [[ -z "$repo" || ! -d "$repo" ]] && { echo "  p$idx: repo path missing" >&2; return 1; }
+
+  if [[ "$orig_ref" != "DETACHED" ]]; then
+    git -C "$repo" checkout --quiet "$orig_ref" 2>>"$pdir/log.txt" || \
+      git -C "$repo" checkout --detach --quiet "$orig_head" 2>>"$pdir/log.txt"
+  else
+    git -C "$repo" checkout --detach --quiet "$orig_head" 2>>"$pdir/log.txt"
+  fi
+  git -C "$repo" reset --hard --quiet "$orig_head" 2>>"$pdir/log.txt"
+
+  if [[ "$stash_msg" != "no-stash-needed" && -n "$stash_msg" ]]; then
+    local stash_ref
+    stash_ref=$(git -C "$repo" stash list | grep -F "$stash_msg" | head -1 | cut -d: -f1)
+    if [[ -n "$stash_ref" ]]; then
+      if git -C "$repo" stash apply --quiet "$stash_ref" 2>>"$pdir/log.txt"; then
+        git -C "$repo" stash drop --quiet "$stash_ref" 2>>"$pdir/log.txt"
+      else
+        echo "  p$idx: WARN stash apply conflicted — KEPT in stash list for manual recovery"
+        return 2
+      fi
+    fi
+  fi
+  echo "  p$idx: restored ($repo)"
 }
 
 cmd_restore() {
@@ -104,44 +213,54 @@ cmd_restore() {
   fi
   local id="$1"
   local dir
-  dir=$(ls -td "$CHECKPOINTS_DIR/begin-${id}-"* 2>/dev/null | head -1)
+  if [[ "$id" == "latest" ]]; then
+    dir=$(_find_recent_match "$CHECKPOINTS_DIR/begin-*")
+  else
+    dir=$(_find_recent_match "$CHECKPOINTS_DIR/begin-${id}-*")
+  fi
   if [[ -z "$dir" || ! -d "$dir" ]]; then
     echo "No checkpoint for id $id" >&2
     return 1
   fi
 
-  local orig_ref orig_head stash_msg
-  orig_ref=$(cat "$dir/orig_ref.txt" 2>/dev/null)
-  orig_head=$(cat "$dir/orig_head.txt" 2>/dev/null)
-  stash_msg=$(cat "$dir/stash_msg.txt" 2>/dev/null)
+  echo "restoring from $dir:"
+  local any_fail=0
 
-  # Force-checkout original branch (or detach to original HEAD)
-  if [[ "$orig_ref" != "DETACHED" ]]; then
-    git -C "$USER_REPO" checkout --quiet "$orig_ref" 2>>"$dir/log.txt" || \
-      git -C "$USER_REPO" checkout --detach --quiet "$orig_head" 2>>"$dir/log.txt"
+  # New layout: $dir/p<N>/ subdirs per project. Iterate numerically.
+  # shellcheck disable=SC2206  # intentional word splitting on glob expansion
+  local pdirs=( "$dir"/p* )
+  if (( ${#pdirs[@]} > 0 )) && [[ -d "${pdirs[0]}" ]]; then
+    for pdir in "${pdirs[@]}"; do
+      [[ -d "$pdir" ]] || continue
+      local pidx="${pdir##*/p}"
+      _restore_one_project "$pdir" "$pidx" || any_fail=1
+    done
   else
-    git -C "$USER_REPO" checkout --detach --quiet "$orig_head" 2>>"$dir/log.txt"
-  fi
-
-  # Reset to that HEAD (drop any modifications agent left)
-  git -C "$USER_REPO" reset --hard --quiet "$orig_head" 2>>"$dir/log.txt"
-
-  # Apply stash (not pop — pop loses on conflict)
-  if [[ "$stash_msg" != "no-stash-needed" ]]; then
-    local stash_ref
-    stash_ref=$(git -C "$USER_REPO" stash list | grep -F "$stash_msg" | head -1 | cut -d: -f1)
-    if [[ -n "$stash_ref" ]]; then
-      if git -C "$USER_REPO" stash apply --quiet "$stash_ref" 2>>"$dir/log.txt"; then
-        git -C "$USER_REPO" stash drop --quiet "$stash_ref" 2>>"$dir/log.txt"
+    # Legacy single-project layout: state files directly in $dir/. Treat as p0.
+    if [[ -f "$dir/orig_head.txt" ]]; then
+      local repo="$USER_REPO_0" stash_msg
+      stash_msg=$(cat "$dir/stash_msg.txt" 2>/dev/null)
+      local orig_ref orig_head
+      orig_ref=$(cat "$dir/orig_ref.txt"); orig_head=$(cat "$dir/orig_head.txt")
+      if [[ "$orig_ref" != "DETACHED" ]]; then
+        git -C "$repo" checkout --quiet "$orig_ref" 2>>"$dir/log.txt" || \
+          git -C "$repo" checkout --detach --quiet "$orig_head" 2>>"$dir/log.txt"
       else
-        echo "WARN: stash apply conflicted — KEPT in stash list for manual recovery"
-        return 2
+        git -C "$repo" checkout --detach --quiet "$orig_head" 2>>"$dir/log.txt"
       fi
+      git -C "$repo" reset --hard --quiet "$orig_head" 2>>"$dir/log.txt"
+      if [[ -n "$stash_msg" && "$stash_msg" != "no-stash-needed" ]]; then
+        local stash_ref
+        stash_ref=$(git -C "$repo" stash list | grep -F "$stash_msg" | head -1 | cut -d: -f1)
+        [[ -n "$stash_ref" ]] && git -C "$repo" stash apply --quiet "$stash_ref" && git -C "$repo" stash drop --quiet "$stash_ref"
+      fi
+      echo "  legacy single-project: restored ($repo)"
     fi
   fi
 
   rm -f "$ACTIVE_MARKER"
-  echo "restored from $dir"
+  [[ "$any_fail" == "1" ]] && echo "WARN: some projects failed to restore (see lines above)" >&2
+  echo "done"
 }
 
 # Snapshot ONE project to a $dir/p<N>/ subdir. Used by cmd_snapshot per project.
@@ -192,14 +311,14 @@ cmd_snapshot() {
 
   # Dedup against most-recent snapshot. Only checks PRIMARY project's hash
   # (the common single-project case stays fast; multi-project edge eats one
-  # extra dir on a no-change rerun — acceptable for v0.1).
+  # extra dir on a no-change rerun, which is harmless).
   local cur_head cur_ref cur_status_hash
   cur_head=$(git -C "$USER_REPO" rev-parse HEAD 2>/dev/null)
   cur_ref=$(git -C "$USER_REPO" symbolic-ref --short HEAD 2>/dev/null || echo "DETACHED")
   cur_status_hash=$(git -C "$USER_REPO" status --porcelain | shasum | cut -d' ' -f1)
 
   local recent_dir
-  recent_dir=$(ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -1)
+  recent_dir=$(_find_recent_match "$CHECKPOINTS_DIR/snap-*")
   if [[ -n "$recent_dir" && -f "$recent_dir/p0/orig_head.txt" ]]; then
     local r_head r_ref r_status_hash
     r_head=$(cat "$recent_dir/p0/orig_head.txt")
@@ -267,7 +386,7 @@ cmd_rollback() {
   local id="${1:-latest}"
   local dir
   if [[ "$id" == "latest" ]]; then
-    dir=$(ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -1)
+    dir=$(_find_recent_match "$CHECKPOINTS_DIR/snap-*")
   else
     dir="$CHECKPOINTS_DIR/$id"
   fi
@@ -298,20 +417,28 @@ cmd_rollback() {
   # New layout: iterate p0/, p1/, … in numeric order.
   echo "rolling back from $dir:"
   local any_fail=0
-  for pdir in "$dir"/p*; do
-    [[ -d "$pdir" ]] || continue
-    local idx="${pdir##*/p}"
-    if ! _rollback_one_project "$pdir" "$idx"; then
-      any_fail=1
-      [[ "$idx" == "0" ]] && { echo "FATAL: primary rollback failed" >&2; return 1; }
-    fi
-  done
+  # shellcheck disable=SC2206  # intentional word splitting on glob expansion
+  local pdirs=( "$dir"/p* )
+  if (( ${#pdirs[@]} > 0 )) && [[ -d "${pdirs[0]}" ]]; then
+    for pdir in "${pdirs[@]}"; do
+      [[ -d "$pdir" ]] || continue
+      local idx="${pdir##*/p}"
+      if ! _rollback_one_project "$pdir" "$idx"; then
+        any_fail=1
+        [[ "$idx" == "0" ]] && { echo "FATAL: primary rollback failed" >&2; return 1; }
+      fi
+    done
+  fi
   [[ "$any_fail" == "1" ]] && echo "WARN: at least one secondary rollback failed (see lines above)"
   echo "done"
 }
 
 cmd_list_snapshots() {
-  ls -td "$CHECKPOINTS_DIR"/snap-* 2>/dev/null | head -20 | while read -r d; do
+  # shellcheck disable=SC2206  # intentional word splitting on glob expansion
+  local snaps=( "$CHECKPOINTS_DIR"/snap-* )
+  (( ${#snaps[@]} == 0 )) && return 0
+  [[ -d "${snaps[0]}" ]] || return 0
+  ls -td "${snaps[@]}" 2>/dev/null | head -20 | while read -r d; do
     local ts; ts=$(stat -f %Sm -t '%Y-%m-%d %H:%M' "$d" 2>/dev/null)
     echo "$(basename "$d")  $ts"
   done
@@ -329,34 +456,46 @@ cmd_recover_orphan() {
   cmd_restore "$id"
 }
 
-# cmd_apply <checkpoint-id> <patch-file>
+# cmd_apply <checkpoint-id> <patch-file> [--project=N]
 # Applies a test patch on top of origin/main (detached) inside a previously-
 # begun checkpoint. cmd_restore returns to the pre-apply state. Referenced
 # by prompt.md ("All mutations happen via protect-user-state.sh apply/restore");
 # without this, the patch-test-restore loop is broken.
+#
+# Multi-project: pass `--project=N` to apply the patch to a non-primary repo
+# from ALL_USER_REPOS (default 0 = primary). The flag's position is free —
+# anywhere in the argv works, since _resolve_project_flag strips it first.
 cmd_apply() {
+  _resolve_project_flag "$@" || return 2
+  set -- "${REMAINING_ARGS[@]}"
   local id="${1:-}"
   local patch="${2:-}"
-  [[ -z "$id" || -z "$patch" ]] && { echo "usage: protect-user-state.sh apply <id> <patch-file>" >&2; return 2; }
+  [[ -z "$id" || -z "$patch" ]] && {
+    echo "usage: protect-user-state.sh apply <id> <patch-file> [--project=N]" >&2
+    return 2
+  }
   local dir="$CHECKPOINTS_DIR/$id"
+  local repo="$RESOLVED_PROJECT_REPO"
+  local idx="$RESOLVED_PROJECT_IDX"
 
   [[ -d "$dir" ]] || { echo "FATAL: checkpoint dir not found: $dir" >&2; return 2; }
   [[ -f "$patch" ]] || { echo "FATAL: patch file not found: $patch" >&2; return 2; }
+  [[ -d "$repo" ]] || { echo "FATAL: project[$idx] repo not found: $repo" >&2; return 2; }
 
-  cd "$USER_REPO" || return 2
+  cd "$repo" || return 2
 
   # Detach to origin/main so the patch lands on a known baseline (not whatever
   # branch the user happened to leave checked out)
   git fetch origin main --quiet 2>>"$dir/log.txt" || true
   git checkout --detach origin/main --quiet 2>>"$dir/log.txt" || {
-    echo "FATAL: checkout origin/main failed" >&2
+    echo "FATAL: checkout origin/main failed in $repo" >&2
     return 2
   }
   if ! git apply "$patch" 2>>"$dir/log.txt"; then
-    echo "ERROR: patch did not apply cleanly (see $dir/log.txt)" >&2
+    echo "ERROR: patch did not apply cleanly to project[$idx] ($repo) — see $dir/log.txt" >&2
     return 1
   fi
-  echo "applied test patch from $patch on origin/main"
+  echo "applied test patch from $patch on origin/main of project[$idx] ($repo)"
 }
 
 case "${1:-}" in
@@ -371,9 +510,9 @@ case "${1:-}" in
   *)
     echo "Usage: protect-user-state.sh {begin|apply|restore|snapshot|rollback|list-snapshots|prune|recover-orphan}" >&2
     echo "" >&2
-    echo "  begin <bug-id>                   — create live-repro checkpoint" >&2
-    echo "  apply <checkpoint-id> <patch>    — apply patch on origin/main inside checkpoint" >&2
-    echo "  restore <checkpoint-id>          — restore from live-repro checkpoint" >&2
+    echo "  begin <bug-id> [--project=N]     — create live-repro checkpoint (project default 0)" >&2
+    echo "  apply <checkpoint-id> <patch> [--project=N]  — apply patch on origin/main inside checkpoint" >&2
+    echo "  restore <checkpoint-id>          — restore from live-repro checkpoint (all projects)" >&2
     echo "  snapshot [label]                 — pre-run baseline snapshot" >&2
     echo "  rollback <snap-id>               — roll back to baseline snapshot" >&2
     echo "  list-snapshots                   — list recent baseline snapshots" >&2

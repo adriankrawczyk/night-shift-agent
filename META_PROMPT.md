@@ -16,7 +16,7 @@ This file is the engine — the orchestration logic, the 10-phase flow, the file
 
 4. **Question data is in `wizard-questions.yaml`, not in this file.** When you ask Q1.2, look up the entry with `id: q1_2` in the yaml. The yaml is the source of truth for wording, options, and tier-filters. The user can edit it post-install.
 
-5. **English everywhere in the artifacts.** All generated files, all user-facing strings, all comments — English. No localization in v0.1.
+5. **English everywhere in the artifacts.** All generated files, all user-facing strings, all comments — English.
 
 6. **One-shot, deterministic generation.** When you create files in Phase 10, render every template fully — no "I'll come back to fill this in later" placeholders.
 
@@ -119,7 +119,7 @@ Use `jq` to read/write. Persist `os` as the canonical `"macOS"` (the installer g
 ```bash
 OS_RAW="$(uname -s)"
 if [ "$OS_RAW" != "Darwin" ]; then
-  echo "FATAL: Night Shift Agent v0.1 is macOS-only (saw '$OS_RAW')." >&2
+  echo "FATAL: Night Shift Agent is macOS-only (saw '$OS_RAW')." >&2
   exit 1
 fi
 jq '.os = "macOS"' "$SCAN_JSON" > "$SCAN_JSON.tmp" && mv "$SCAN_JSON.tmp" "$SCAN_JSON"

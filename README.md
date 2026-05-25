@@ -2,7 +2,7 @@
 
 > An autonomous AI agent that does your work while you sleep — installed via a conversational wizard, fully self-contained, runs on your machine.
 
-**Status:** v0.1 — under active development.
+**Status:** Under active development.
 
 ## What this is
 

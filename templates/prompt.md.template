@@ -120,7 +120,9 @@ Project → worktree map:
 
 You may generate patches against **any** project. Per patch, set its `project_index` (the `N` above) so the wrapper knows which worktree it lives in.
 
-**Snapshot/restore (multi-project):** `protect-user-state.sh snapshot` walks every USER_REPO_N — each project gets its own `snap-<id>/p<N>/` dir with HEAD, ref, status hash, and uncommitted diff. `rollback <snap-id>` iterates p<N>/ in numeric order. Primary failure aborts; secondary failure WARNs and continues (other projects still restore). `apply <id> <patch>` and `begin <id>` still operate on **primary only** for v0.1 (the test-patch workflow assumes one focused checkpoint at a time). For a patch targeting a non-primary project, stage it in that project's worktree under AGENT_WORKTREE_<N> instead. Verify methods are project-specific — never run project A's `pytest` in project B's worktree.
+**Snapshot/restore (multi-project):** `protect-user-state.sh snapshot` walks every USER_REPO_N — each project gets its own `snap-<id>/p<N>/` dir with HEAD, ref, status hash, and uncommitted diff. `rollback <snap-id>` iterates p<N>/ in numeric order. Primary failure aborts; secondary failure WARNs and continues (other projects still restore).
+
+`begin <id> [--project=N]` and `apply <id> <patch> [--project=N]` accept a `--project=N` flag (default 0). Begins for the same `<id>` on different projects accumulate p<N>/ entries inside one checkpoint dir; `restore <id>` walks them all in numeric order. For a UI live-repro that spans two repos (e.g. mobile + backend), call `begin <id> --project=0` then `begin <id> --project=1`, apply the relevant test patch against whichever project actually needs to change with `apply <id> <patch> --project=N`, then one `restore <id>` rolls back both. Verify methods are project-specific — never run project A's `pytest` in project B's worktree.
 
 `WORKTREE` and `USER_REPO` (without index) alias the **primary** (project 0) for backward compat with single-project recipes. For multi-project recipes, always use the indexed form.
 {{/if}}

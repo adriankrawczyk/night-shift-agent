@@ -14,7 +14,7 @@ set -euo pipefail
 
 # === Platform gate ===
 if [ "$(uname -s)" != "Darwin" ]; then
-  printf '\033[31mNight Shift Agent v0.1 requires macOS.\033[0m\n' >&2
+  printf '\033[31mNight Shift Agent requires macOS.\033[0m\n' >&2
   printf 'The installer uses launchd, caffeinate, networksetup, plutil, osascript, and SwiftBar — all macOS-specific.\n' >&2
   exit 1
 fi
