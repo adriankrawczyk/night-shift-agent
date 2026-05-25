@@ -141,9 +141,45 @@ date -u +%FT%TZ > "$RUNTIME_DIR/started.txt"
 
 # === Begin pre-run snapshot (per Pattern P10) ===
 {{#if snapshot_user_repo}}
-log_both "Snapshotting user repo state"
+log_both "Snapshotting user repo state (all projects)"
 {{ pattern.P10 }}
-ub_snapshot "pre-run-${RUN_TS}"
+# Multi-project variants of ub_snapshot/ub_restore — track per-project state
+# via .active-snapshot-p<N> + .active-branch-p<N> files so each project can
+# be restored independently. The base P10 helpers (above) handle the
+# single-project case via $USER_REPO; these wrap them for the N-project case.
+ub_snapshot_multi() {
+  local idx="$1" repo="$2" id="$3"
+  git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  local stash_msg
+  stash_msg="night-shift-snap-${id}-p${idx}-$(date -u +%FT%TZ)"
+  git -C "$repo" branch --show-current > "$ROUTINE_DIR/.active-branch-p${idx}" 2>/dev/null
+  git -C "$repo" stash push --include-untracked --quiet -m "$stash_msg" 2>/dev/null
+  echo "$stash_msg" > "$ROUTINE_DIR/.active-snapshot-p${idx}"
+}
+
+ub_restore_multi() {
+  local idx="$1" repo="$2"
+  local stash_msg
+  stash_msg="$(cat "$ROUTINE_DIR/.active-snapshot-p${idx}" 2>/dev/null)"
+  [[ -z "$stash_msg" ]] && return 0
+  local orig_branch
+  orig_branch="$(cat "$ROUTINE_DIR/.active-branch-p${idx}" 2>/dev/null)"
+  [[ -n "$orig_branch" ]] && git -C "$repo" checkout --quiet "$orig_branch" 2>/dev/null
+  local stash_ref
+  stash_ref="$(git -C "$repo" stash list | grep -F "$stash_msg" | head -1 | cut -d: -f1)"
+  if [[ -n "$stash_ref" ]]; then
+    if git -C "$repo" stash apply --quiet "$stash_ref" 2>/dev/null; then
+      git -C "$repo" stash drop --quiet "$stash_ref" 2>/dev/null
+      rm -f "$ROUTINE_DIR/.active-snapshot-p${idx}" "$ROUTINE_DIR/.active-branch-p${idx}"
+    else
+      log_both "WARN: stash apply conflicted for project[$idx] — kept in stash list for manual recovery"
+    fi
+  fi
+}
+
+{{#each projects}}
+ub_snapshot_multi "{{ @index }}" "$USER_REPO_{{ @index }}" "pre-run-${RUN_TS}"
+{{/each}}
 
 # === WORKTREE SETUP — isolated checkout per project so agent never touches USER_REPO ===
 # Snapshot above is the rollback safety net; this is the prevention. Agent operates
@@ -591,10 +627,12 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
   ATTEMPT=$((ATTEMPT + 1))
 done
 
-# === Restore user repo if snapshotted ===
+# === Restore user repo state (all projects) ===
 {{#if snapshot_user_repo}}
-log_both "Restoring user repo state"
-ub_restore
+log_both "Restoring user repo state (all projects)"
+{{#each projects}}
+ub_restore_multi "{{ @index }}" "$USER_REPO_{{ @index }}"
+{{/each}}
 {{/if}}
 
 # === Spawn meta-agent if enabled (detached, so cleanup trap doesn't wait) ===

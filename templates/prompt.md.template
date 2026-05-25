@@ -344,14 +344,26 @@ For each output channel in your config, render the brief in the appropriate form
 {{#if (eq this "slack_dm")}}
 - **Slack DM**: format the brief as Slack-flavored Markdown (mrkdwn). Send to user's self-DM (channel ID in scoping config).
 {{/if}}
+{{#if (eq this "slack_channel")}}
+- **Slack channel**: format the brief as Slack-flavored Markdown (mrkdwn). Post to the channel ID configured in scoping. Use threading if a "morning thread" id is configured.
+{{/if}}
 {{#if (eq this "drive_doc")}}
 - **Drive doc**: create new Google Doc with the brief content. Place in folder configured in scoping.
 {{/if}}
 {{#if (eq this "github_issue")}}
 - **GitHub issue**: open new issue with brief content. Labels: configured in scoping. Auto-close after N days idle.
 {{/if}}
+{{#if (eq this "notion")}}
+- **Notion page**: create a new page under the configured parent page/database. Use the brief markdown as page body; if a database is configured, populate `Date` + `Status=open` properties.
+{{/if}}
+{{#if (eq this "discord")}}
+- **Discord**: send the brief to the configured channel as a single message (≤2000 chars) or split into a thread if longer. Use markdown-lite formatting (Discord supports `**bold**`, `*italic*`, ` ``` ` code blocks).
+{{/if}}
 {{#if (eq this "webhook")}}
 - **Webhook**: POST JSON `{ "brief_markdown": "...", "patches": [...], "metadata": {...} }` to configured URL with auth header.
+{{/if}}
+{{#if (eq this "macos_notification")}}
+- **macOS notification**: the wrapper (`run.sh`) fires a `display notification` banner via `osascript` AFTER you exit cleanly — you do NOT send this yourself. Just make sure `runs/<date>/brief.md` exists so clicking "open" works.
 {{/if}}
 {{/each}}
 

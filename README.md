@@ -53,7 +53,7 @@ The wizard takes ~20-30 min for the Full tier. You can kill it at any time and r
 | 9 | Dashboard | Optional: menu-bar widget showing agent status |
 | 10 | Dry-run + commit | Preview, test fire, push to GitHub |
 
-By tier, total question count: **Minimal ~15**, **Full ~30** (skip-on-default reduces what you actually answer).
+By tier, total question count: **Minimal ~15**, **Full ~34** (skip-on-default + conditional gates reduce what you actually answer — Full averages ~20-25 in practice).
 
 ## Platform support
 
@@ -81,7 +81,7 @@ night-shift-agent/                   ← installer (this repo)
 ├── PERSONA_BUILDER.md               ← reviewer-style.md generation algorithm (concrete steps)
 ├── COORD_PATTERN.md                 ← multi-machine (local + cloud) coord protocol
 ├── README.md                        ← this file
-├── templates/                       ← 24 scaffolds the wizard renders into your install
+├── templates/                       ← 28 scaffolds the wizard renders into your install
 │   ├── README.md                    ← template grammar + variables contract
 │   ├── prompt.md.template
 │   ├── run.sh.template

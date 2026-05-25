@@ -284,8 +284,11 @@ MAX_RESUME_ATTEMPTS=3                          # constant — three sub-runs wit
 | `resilience_network_recovery` | `$ANSWERS_JSON.resilience == aggressive` | bool — only aggressive flips wifi toggle |
 | `resilience_stall_watchdog` | `$ANSWERS_JSON.resilience ∈ {balanced, aggressive}` | bool |
 | `has_linear` | `"linear" ∈ $SCAN_JSON.existing_mcps` | bool |
+| `has_jira` | `"jira" ∈ $SCAN_JSON.existing_mcps` | bool — parallel to `has_linear`; daily-meta-prompt.md emits a Jira section if true |
 | `has_login_flow` | OR over `$SCAN_JSON.projects[].has_login_flow` | bool — singular at top level |
 | `has_slack_channels` | `"slack" ∈ $SCAN_JSON.existing_mcps && $ANSWERS_JSON.output_channels contains a slack_*` | bool |
+| `has_discord` | `"discord" ∈ $SCAN_JSON.existing_mcps` | bool — daily-meta-prompt + prompt emit Discord-aware blocks if true |
+| `has_teams` | `"teams" ∈ $SCAN_JSON.existing_mcps` (Microsoft Teams MCP id) | bool — Teams equivalent of has_slack_channels |
 | `uses_macos_notification` | `"macos_notification" ∈ $ANSWERS_JSON.output_channels` | bool — gates the `osascript` banner in run.sh. Auto-selected by Minimal-tier scan-default when no message-capable MCP is connected. |
 | `project_uses_react_compiler` | scan for `babel-plugin-react-compiler` or `experimental: {reactCompiler: true}` in `next.config.*`/`babel.config.*` | bool (per-project — for prompt.md template, use the primary project at index 0) |
 | `gh_repo_full` | `"${gh_user_login}/${gh_repo.name}"` where `gh_user_login` is captured at Phase 0's GitHub scan step (`gh api user --jq .login`) and persisted as `$SCAN_JSON.gh_user_login`. Empty string if `gh_repo.create == false`. |
