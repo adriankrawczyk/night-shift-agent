@@ -124,6 +124,8 @@ You may generate patches against **any** project. Per patch, set its `project_in
 
 `begin <id> [--project=N]` and `apply <id> <patch> [--project=N]` accept a `--project=N` flag (default 0). Begins for the same `<id>` on different projects accumulate p<N>/ entries inside one checkpoint dir; `restore <id>` walks them all in numeric order. For a UI live-repro that spans two repos (e.g. mobile + backend), call `begin <id> --project=0` then `begin <id> --project=1`, apply the relevant test patch against whichever project actually needs to change with `apply <id> <patch> --project=N`, then one `restore <id>` rolls back both. Verify methods are project-specific — never run project A's `pytest` in project B's worktree.
 
+`apply` takes an optional `base-ref` (3rd positional, default `origin/main`): `apply <id> <patch> <base-ref> [--project=N]`. **A patch generated against a PR / feature branch MUST pass that branch as base-ref** — resolve it with `gh pr view <N> --json headRefName --jq .headRefName` and pass `origin/<branch>`. Omitting it (or passing `origin/main`) silently fails for any patch that adds or touches files present only on the feature branch: `git apply`'s context won't match, the patch is skipped, and you get zero live verification with no error. Patches for bugs that already exist on prod (e.g. a bug-feed item) keep the `origin/main` default.
+
 `WORKTREE` and `USER_REPO` (without index) alias the **primary** (project 0) for backward compat with single-project recipes. For multi-project recipes, always use the indexed form.
 {{/if}}
 {{/if}}

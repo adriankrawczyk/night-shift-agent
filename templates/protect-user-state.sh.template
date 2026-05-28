@@ -456,11 +456,19 @@ cmd_recover_orphan() {
   cmd_restore "$id"
 }
 
-# cmd_apply <checkpoint-id> <patch-file> [--project=N]
-# Applies a test patch on top of origin/main (detached) inside a previously-
-# begun checkpoint. cmd_restore returns to the pre-apply state. Referenced
-# by prompt.md ("All mutations happen via protect-user-state.sh apply/restore");
-# without this, the patch-test-restore loop is broken.
+# cmd_apply <checkpoint-id> <patch-file> [base-ref] [--project=N]
+# Applies a test patch on top of base-ref (detached, default origin/main) inside
+# a previously-begun checkpoint. cmd_restore returns to the pre-apply state.
+# Referenced by prompt.md ("All mutations happen via protect-user-state.sh
+# apply/restore"); without this, the patch-test-restore loop is broken.
+#
+# base-ref: optional 3rd positional, defaults to origin/main for backward compat.
+# A patch that adds or touches files present only on a FEATURE BRANCH (e.g. a
+# patch generated against origin/<pr-branch>) MUST be applied with the matching
+# base or git apply's context will not match and the patch silently fails — no
+# live verification. Pass the PR's branch (`gh pr view <N> --json headRefName`)
+# as base-ref for PR patches; leave it default for bug-feed patches that exist
+# on prod (origin/main). Accepts origin/<ref>, a bare ref, or a 40-hex commit.
 #
 # Multi-project: pass `--project=N` to apply the patch to a non-primary repo
 # from ALL_USER_REPOS (default 0 = primary). The flag's position is free —
@@ -470,8 +478,9 @@ cmd_apply() {
   set -- "${REMAINING_ARGS[@]}"
   local id="${1:-}"
   local patch="${2:-}"
+  local base_ref="${3:-origin/main}"
   [[ -z "$id" || -z "$patch" ]] && {
-    echo "usage: protect-user-state.sh apply <id> <patch-file> [--project=N]" >&2
+    echo "usage: protect-user-state.sh apply <id> <patch-file> [base-ref] [--project=N]" >&2
     return 2
   }
   local dir="$CHECKPOINTS_DIR/$id"
@@ -484,18 +493,27 @@ cmd_apply() {
 
   cd "$repo" || return 2
 
-  # Detach to origin/main so the patch lands on a known baseline (not whatever
-  # branch the user happened to leave checked out)
-  git fetch origin main --quiet 2>>"$dir/log.txt" || true
-  git checkout --detach origin/main --quiet 2>>"$dir/log.txt" || {
-    echo "FATAL: checkout origin/main failed in $repo" >&2
+  # Detach to base_ref so the patch lands on a known baseline (not whatever
+  # branch the user happened to leave checked out). base_ref is configurable so a
+  # patch touching files present only on a feature branch verifies there instead
+  # of silently failing against main. Fetch the underlying ref first; a 40-hex
+  # local commit hash needs no fetch.
+  if [[ "$base_ref" =~ ^[0-9a-f]{40}$ ]]; then
+    : # local commit hash — no fetch needed
+  elif [[ "$base_ref" == origin/* ]]; then
+    git fetch origin "${base_ref#origin/}" --quiet 2>>"$dir/log.txt" || true
+  else
+    git fetch origin "$base_ref" --quiet 2>>"$dir/log.txt" || true
+  fi
+  git checkout --detach "$base_ref" --quiet 2>>"$dir/log.txt" || {
+    echo "FATAL: checkout $base_ref failed in $repo" >&2
     return 2
   }
   if ! git apply "$patch" 2>>"$dir/log.txt"; then
-    echo "ERROR: patch did not apply cleanly to project[$idx] ($repo) — see $dir/log.txt" >&2
+    echo "ERROR: patch did not apply cleanly to project[$idx] ($repo) against $base_ref — see $dir/log.txt" >&2
     return 1
   fi
-  echo "applied test patch from $patch on origin/main of project[$idx] ($repo)"
+  echo "applied test patch from $patch on $base_ref of project[$idx] ($repo)"
 }
 
 case "${1:-}" in
@@ -511,7 +529,7 @@ case "${1:-}" in
     echo "Usage: protect-user-state.sh {begin|apply|restore|snapshot|rollback|list-snapshots|prune|recover-orphan}" >&2
     echo "" >&2
     echo "  begin <bug-id> [--project=N]     — create live-repro checkpoint (project default 0)" >&2
-    echo "  apply <checkpoint-id> <patch> [--project=N]  — apply patch on origin/main inside checkpoint" >&2
+    echo "  apply <checkpoint-id> <patch> [base-ref] [--project=N]  — apply patch on base-ref (default origin/main) inside checkpoint" >&2
     echo "  restore <checkpoint-id>          — restore from live-repro checkpoint (all projects)" >&2
     echo "  snapshot [label]                 — pre-run baseline snapshot" >&2
     echo "  rollback <snap-id>               — roll back to baseline snapshot" >&2
