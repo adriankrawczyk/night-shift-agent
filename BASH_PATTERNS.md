@@ -602,12 +602,30 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
     break
   fi
 
-  # Rate limit / overload detection
-  if grep -qiE 'usage limit (reached|exceeded)|rate.?limit_error|429 Too Many Requests' "$LOG" 2>/dev/null; then
+  # Rate-limit / overload detection. Detection + reset parsing live in PURE
+  # functions defined at the top of run.sh (log_has_rate_limit / log_has_overload
+  # / compute_rate_limit_reset_epoch) with hidden --selftest entrypoints, so a
+  # test harness can BEHAVIORALLY exercise them on synthetic logs (see Gotchas).
+  # Detection must recognize the Max-plan interactive message
+  # "You've hit your limit · resets 4am (TZ)" — a bare "usage limit reached"
+  # regex misses it, so the night hard-fails instead of deferring to the reset.
+  if log_has_rate_limit "$LOG"; then
     if (( RATE_LIMIT_RETRIES < MAX_RATE_LIMIT_RETRIES )); then
-      log_both "Rate limited — sleeping then retrying (without counting attempt)"
       RATE_LIMIT_RETRIES=$((RATE_LIMIT_RETRIES + 1))
-      sleep $(( RATE_LIMIT_RETRIES * 600 ))
+      # Reset parsing handles ISO ("will reset at <ISO>", constrained to
+      # reset-lines so log-prefix timestamps can't hijack it), wall-clock
+      # ("resets 4am (TZ)"), and relative ("in 4h 12m") — see run.sh top.
+      reset_epoch=$(compute_rate_limit_reset_epoch "$LOG")
+      wait_for=$(( reset_epoch - $(date -u +%s) )); (( wait_for < 30 )) && wait_for=30
+      log_both "Rate limited — sleeping ${wait_for}s until reset (not counting attempt)"
+      sleep "$wait_for"
+      continue
+    fi
+  elif log_has_overload "$LOG"; then
+    if (( RATE_LIMIT_RETRIES < MAX_RATE_LIMIT_RETRIES )); then
+      # Transient 529 — short backoff (120s, 240s, 360s), NOT an hours-long wait.
+      RATE_LIMIT_RETRIES=$((RATE_LIMIT_RETRIES + 1))
+      sleep $(( RATE_LIMIT_RETRIES * 120 ))
       continue
     fi
   fi
@@ -622,6 +640,8 @@ done
 **Gotchas:**
 - `${pipestatus[1]:-0}` (zsh, 1-indexed, lowercase). bash equivalent is `${PIPESTATUS[0]}`.
 - `tee` always exits 0 — without pipestatus you'd read 0 not claude's real code.
+- **Extract detection + parsing into pure functions with hidden `--selftest-detect` / `--selftest-reset-epoch` entrypoints, then assert them behaviorally.** Presence-grepping the regex is NOT enough: a matcher or parser can go dead (shadowed match, mis-anchored grep, a regex literal that also appears in comments) while the grep that "proves" it stays green — you'd only discover it at the live reset hour. `validate.sh` runs the rendered `run.sh --selftest-*` on synthetic logs and asserts the computed classification + reset epoch.
+- **Distinguish 429 / usage-limit (wait until the real reset — possibly hours) from 529 overload (transient — short backoff).** One shared fixed-sleep path means a ~15-min Anthropic outage burns the whole retry budget instead of riding it out.
 
 ---
 
