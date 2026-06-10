@@ -283,6 +283,9 @@ MAX_RESUME_ATTEMPTS=3                          # constant — three sub-runs wit
 | `resilience_caffeinate` | `$ANSWERS_JSON.resilience ∈ {balanced, aggressive}` | bool — `conservative` disables |
 | `resilience_network_recovery` | `$ANSWERS_JSON.resilience == aggressive` | bool — only aggressive flips wifi toggle |
 | `resilience_stall_watchdog` | `$ANSWERS_JSON.resilience ∈ {balanced, aggressive}` | bool |
+| `resilience_abs_wall_timer` | `$ANSWERS_JSON.resilience ∈ {balanced, aggressive}` | bool — gates BASH_PATTERNS P19 absolute wall-clock suicide timer (hard-bounds the whole run; survives macOS sleep). |
+| `resilience_api_gate` | `$ANSWERS_JSON.resilience ∈ {balanced, aggressive}` | bool — gates BASH_PATTERNS P23 API-readiness gate + the retry night-cutoff (catches post-sleep-wake socket hangs). |
+| `uses_mcp_config` | `len($SCAN_JSON.existing_mcps) > 0` | bool — true when any MCP server is wired into headless `claude --print`; gates the `--mcp-config`/`--settings` flags (P20) so the agent doesn't silently lose its MCP tools. |
 | `has_linear` | `"linear" ∈ $SCAN_JSON.existing_mcps` | bool |
 | `has_jira` | `"jira" ∈ $SCAN_JSON.existing_mcps` | bool — parallel to `has_linear`; daily-meta-prompt.md emits a Jira section if true |
 | `has_login_flow` | OR over `$SCAN_JSON.projects[].has_login_flow` | bool — singular at top level |
