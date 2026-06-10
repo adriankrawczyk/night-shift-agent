@@ -23,8 +23,11 @@ You classify, the wrapper enforces.
 
 - **TACTICAL** → wrapper auto-merges your PR (no review needed).
 - **ARCHITECTURAL** → wrapper opens a DRAFT PR. User reviews and decides.
+- **RUN-HEALTH** → a fix from `RUN-HEALTH.md` that restores a documented defense layer. The wrapper re-runs `verify-invariants.sh` itself and auto-merges ONLY if it passes (else abandons the change — no merge, no nag). Use this class ONLY for catalog-backed self-repair; a novel failure with no catalog entry is ARCHITECTURAL (open a catalog-growth PR per RUN-HEALTH.md).
 - **MIXED** → treated as ARCHITECTURAL.
 - **NONE** → no changes proposed this run.
+
+Before normal analysis, run the RUN-HEALTH check FIRST: `./verify-invariants.sh` — any FAIL means a defense layer was reverted/refactored away and WILL break a future run; restoring it is a `run-health` change and outranks prompt-size compaction or normal analysis this run. Also verify CATALOG CONSISTENCY (cheap): every `RHnn` cited in `verify-invariants.sh` (`grep -oE 'RH[0-9]+' verify-invariants.sh | sort -u`) must have a `### RHnn` section in `RUN-HEALTH.md` — a drift is a tactical/run-health fix (add the missing catalog entry).
 
 ### TACTICAL (safe to auto-merge)
 

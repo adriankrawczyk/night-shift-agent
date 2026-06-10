@@ -1,0 +1,101 @@
+# RUN-HEALTH catalog — autonomous self-healing
+
+This is the failure→fix catalog + decision procedure for the `run-health` track.
+The meta-agent (post-night) and daily-meta (pre-night REVERT GUARD) both consult
+it. It is designed to **GROW**: when the system hits a novel recurring failure,
+the meta-agent adds a `### RHnn` section here + a check in `verify-invariants.sh`,
+in one architectural PR. Adding entries is expected and good; removing one is a
+revert.
+
+## Decision procedure
+
+1. Run `./verify-invariants.sh` (and, post-night, inspect the run's jsonl/log).
+2. For each failing invariant, find its `### RHnn` section below.
+3. If the section is `Auto-merge: YES`, apply the documented fix, then re-run
+   `./verify-invariants.sh --for RHnn`. If it now PASSES, classify the change as
+   `class: run-health` (the wrapper re-runs the gate and auto-merges only on a
+   clean pass; on FAIL it abandons the change — status quo stays safe, no nag).
+4. A failure with NO catalog entry is NOT run-health — it's architectural: open a
+   catalog-growth PR (new check + new section + `do_not_touch` note) so the next
+   occurrence becomes auto-repairable.
+
+**Hard rules**
+- `run-health` auto-merge is allowed ONLY if `verify-invariants.sh` passes after
+  the fix. That gate is the only thing keeping auto-merge safe — never weaken it.
+- A `run-health` action this run takes priority over prompt-size compaction or
+  normal analysis: a broken/at-risk night is more urgent.
+- Respect `META-DECISIONS.md` do_not_touch zones.
+
+## Catalog (seed)
+
+### RH05 — sighup_fatal
+- **Signal**: an unattended run (or an in-flight rate-limit sleep) died on terminal/session hangup.
+- **Fix**: `trap '' HUP` in run.sh (ignore SIGHUP); the wall/stall/caffeinate/launchd-SIGTERM layers still bound a stuck run.
+- **Invariant**: `verify-invariants.sh --for RH05` (sighup_survival). **Auto-merge**: YES.
+
+### RH06 — rate_limit_undetected
+- **Signal**: a rate-limit/usage-limit message in the log but the retry loop burned attempts instead of deferring to the reset.
+- **Fix**: restore the rate-limit detection regex (incl. `hit your limit`) + wall-clock reset parser.
+- **Invariant**: `verify-invariants.sh --for RH06` (ratelimit_regex). **Auto-merge**: YES.
+
+### RH20 — single_instance_lost
+- **Signal**: two runs raced, or cleanup never released the lock.
+- **Fix**: restore the atomic `acquire_lock` (P1) + the idempotent `cleanup` trap (P5).
+- **Invariant**: `verify-invariants.sh --for RH20` (lock_present, cleanup_trap). **Auto-merge**: YES.
+
+### RH22 — hard_wall_breached
+- **Signal**: claude ran past `CLAUDE_HARD_TIMEOUT_SEC` with no rc=124; the run held the lock for hours.
+- **Fix**: restore the timeout enforcement (gtimeout/perl-alarm) wired to the hard-wall var (P7).
+- **Invariant**: `verify-invariants.sh --for RH22` (hard_wall_present, hard_wall_enforced). **Auto-merge**: YES.
+
+{{#if resilience_abs_wall_timer}}
+### RH19 — runaway_whole_run
+- **Signal**: a retry-looping run held the lock for many hours; the next scheduled run refused → zero output.
+- **Fix**: restore the absolute wall-clock suicide timer (P19) + age-based lock reclamation.
+- **Invariant**: `verify-invariants.sh --for RH19` (abs_wall_timer). **Auto-merge**: YES.
+{{/if}}
+{{#if resilience_api_gate}}
+### RH18 — post_wake_socket_hang
+- **Signal**: the run launched right after a sleep/wake and the SDK hung on its first API call.
+- **Fix**: restore the API-readiness gate (P23) before each claude attempt.
+- **Invariant**: `verify-invariants.sh --for RH18` (api_gate). **Auto-merge**: YES.
+{{/if}}
+{{#if uses_mcp_config}}
+### RH08 — headless_mcp_degraded
+- **Signal**: briefs degraded for nights — the headless agent had no MCP tools though `claude mcp list` said "Connected".
+- **Fix**: pass `--mcp-config` on every `claude --print` arm (headless does NOT inherit `~/.claude.json`).
+- **Invariant**: `verify-invariants.sh --for RH08` (mcp_config_wired). **Auto-merge**: YES.
+{{/if}}
+{{#if resilience_stall_watchdog}}
+### RH23 — stall_or_initial_hang
+- **Signal**: claude hung (zero `tool_use`) and the run wasted hours before being killed.
+- **Fix**: restore the stall watchdog (P4) incl. the FIRST_ACTIVITY_DEADLINE branch + lsof JSONL targeting.
+- **Invariant**: `verify-invariants.sh --for RH23` (stall_watchdog, first_activity). **Auto-merge**: YES.
+{{/if}}
+{{#if resilience_caffeinate}}
+### RH21 — caffeinate_zombie
+- **Signal**: a caffeinate sleep-assertion outlived the run.
+- **Fix**: `cleanup` must kill `$CAFFEINATE_PID`; `caffeinate -t` bounds it as belt-and-suspenders.
+- **Invariant**: `verify-invariants.sh --for RH21` (caffeinate_killed). **Auto-merge**: YES.
+{{/if}}
+
+{{#if resilience_network_recovery}}
+### RH24 — network_recovery_lost
+- **Signal**: DNS/network was down at run start and never recovered; the run failed to reach the API.
+- **Fix**: restore the wifi-toggle network recovery (P8).
+- **Invariant**: `verify-invariants.sh --for RH24` (network_recovery). **Auto-merge**: YES.
+{{/if}}
+{{#if snapshot_user_repo}}
+### RH25 — user_repo_unprotected
+- **Signal**: the user's project could be left mutated (no snapshot/restore around agent edits).
+- **Fix**: restore the `protect-user-state.sh` snapshot/restore wiring (P10).
+- **Invariant**: `verify-invariants.sh --for RH25` (snapshot_present). **Auto-merge**: YES.
+{{/if}}
+
+## Adding a new entry (the growth path)
+
+When you hit a recurring failure with no section above:
+1. Add a `check <id> <file> <pattern> <min> RHnn` line to `verify-invariants.sh`.
+2. Add a `### RHnn` section here (Signal / Fix / Invariant / Auto-merge).
+3. Add a `do_not_touch` note in `META-DECISIONS.md` so the layer isn't reverted.
+All three in one architectural PR.

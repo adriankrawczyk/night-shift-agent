@@ -171,6 +171,25 @@ SUMMARY=$(jq -r '.summary // ""' "$DECISION_FILE")
 
 emit_log "Decision: class=$DECISION_CLASS auto_merge=$AUTO_MERGE"
 
+# === RUN-HEALTH gate (trust but verify) ===
+# class=run-health means meta-claude applied a fix from RUN-HEALTH.md to restore a
+# documented defense layer. We do NOT trust its self-reported validation: re-run
+# verify-invariants.sh ourselves against the working tree carrying the fix.
+# Auto-merge ONLY if every invariant passes; on FAIL the fix didn't take →
+# abandon (status quo stays safe, no merge, no PR, no nag).
+if [[ "$DECISION_CLASS" == "run-health" ]]; then
+  if [[ -x "$ROUTINE_DIR/verify-invariants.sh" ]] && "$ROUTINE_DIR/verify-invariants.sh" >/dev/null 2>&1; then
+    AUTO_MERGE=1
+    emit_log "run-health: verify-invariants PASSED — auto-merge authorized (gated)"
+  else
+    emit_log "run-health: verify-invariants FAILED — abandoning self-change (status quo preserved)"
+    git -C "$ROUTINE_DIR" checkout -- . 2>>"$META_LOG"
+    git -C "$ROUTINE_DIR" checkout --quiet main 2>>"$META_LOG"
+    git -C "$ROUTINE_DIR" branch -D "$META_BRANCH" 2>/dev/null
+    exit 0
+  fi
+fi
+
 if [[ "$DECISION_CLASS" == "none" ]]; then
   emit_log "No improvements proposed — cleaning up"
   git -C "$ROUTINE_DIR" checkout --quiet main 2>>"$META_LOG"
@@ -300,7 +319,7 @@ git -C "$ROUTINE_DIR" commit -m "[meta-agent][$DECISION_CLASS] $SUMMARY" 2>>"$ME
 git -C "$ROUTINE_DIR" push -u origin "$META_BRANCH" 2>>"$META_LOG"
 
 PR_DRAFT_FLAG=""
-if [[ "$DECISION_CLASS" != "tactical" ]]; then
+if [[ "$DECISION_CLASS" != "tactical" && "$DECISION_CLASS" != "run-health" ]]; then
   PR_DRAFT_FLAG="--draft"
 fi
 
@@ -318,15 +337,15 @@ PR_URL=$(grep -oE 'https://github\.com/[^/]+/[^/]+/pull/[0-9]+' "$PR_OUT" | head
 emit_log "PR created: $PR_URL"
 
 # === Auto-merge if tactical AND user enabled ===
-if [[ "$AUTO_MERGE" == "1" ]] && [[ "$DECISION_CLASS" == "tactical" ]]; then
+if [[ "$AUTO_MERGE" == "1" ]] && { [[ "$DECISION_CLASS" == "tactical" ]] || [[ "$DECISION_CLASS" == "run-health" ]]; }; then
   gh pr merge "$PR_URL" --merge --delete-branch 2>>"$META_LOG" && \
-    emit_log "Auto-merged tactical PR"
+    emit_log "Auto-merged $DECISION_CLASS PR"
 fi
 
 # === Notify user about architectural PRs (need their review) ===
 # Tactical PRs auto-merge silently. Architectural PRs are draft + need a human
 # decision — surface them via terminal-notifier (silent fallback to osascript).
-if [[ "$DECISION_CLASS" != "tactical" ]] && [[ -n "$PR_URL" ]]; then
+if [[ "$DECISION_CLASS" != "tactical" ]] && [[ "$DECISION_CLASS" != "run-health" ]] && [[ -n "$PR_URL" ]]; then
   PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
   NOTIFY_TITLE="Meta-agent: ${DECISION_CLASS} PR pending"
   NOTIFY_SUB="PR #${PR_NUMBER} — review when free"
@@ -357,7 +376,7 @@ if [[ -f "$META_DECISIONS_FILE" ]] && [[ -n "$PR_URL" ]]; then
     echo "- pr: $PR_NUMBER"
     echo "  date_local: $TODAY_LOCAL"
     echo "  class: $DECISION_CLASS"
-    echo "  auto_merged: $([[ "$AUTO_MERGE" == "1" && "$DECISION_CLASS" == "tactical" ]] && echo true || echo false)"
+    echo "  auto_merged: $([[ "$AUTO_MERGE" == "1" ]] && { [[ "$DECISION_CLASS" == "tactical" ]] || [[ "$DECISION_CLASS" == "run-health" ]]; } && echo true || echo false)"
     echo "  pr_url: $PR_URL"
     echo "  summary: |"
     echo "    ${SUMMARY:-(no summary)}"

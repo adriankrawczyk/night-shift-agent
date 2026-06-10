@@ -93,6 +93,8 @@ Skipping this step leaves `{{ recipe_gather_steps.pr_responder }}` etc. unresolv
 | `<install>/meta-agent.sh` | `meta-agent.sh.template` | if meta_agent_enabled |
 | `<install>/meta-prompt.md` | `meta-prompt.md.template` | if meta_agent_enabled |
 | `<install>/META-DECISIONS.md` | `META-DECISIONS.md.template` | if meta_agent_enabled |
+| `<install>/verify-invariants.sh` | `verify-invariants.sh.template` | if meta_agent_enabled (RUN-HEALTH defense-layer gate) |
+| `<install>/RUN-HEALTH.md` | `RUN-HEALTH.md.template` | if meta_agent_enabled (RUN-HEALTH failure→fix catalog) |
 | `~/Library/LaunchAgents/com.<user_short>.night-shift-routine.plist` | `launchd-routine.plist.template` | if execution_mode in [local, both] AND macOS |
 | `<install>/dashboard/swiftbar.sh` | `swiftbar.sh.template` | if dashboard.enabled AND macOS |
 | `<install>/dashboard/notify-watcher.sh` | `notify-watcher.sh.template` | if dashboard.enabled AND macOS |
