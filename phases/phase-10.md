@@ -70,6 +70,7 @@ Skipping this step leaves `{{ recipe_gather_steps.pr_responder }}` etc. unresolv
 | File | Template | Conditions |
 |---|---|---|
 | `<install>/prompt.md` | `prompt.md.template` | always |
+| `<install>/AGENTS.md` | `AGENTS.md.template` | always (navigation map for agents working in the install dir) |
 | `<install>/run.sh` | `run.sh.template` | always |
 | `<install>/settings.json` | `settings.json.template` | always |
 | `<install>/recipes/<id>.yaml` | (copied verbatim from `$INSTALLER_DIR/recipes/<id>.yaml`) | per picked recipe |

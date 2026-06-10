@@ -170,6 +170,19 @@ osascript -e 'tell application "Calendar" to get name of every calendar' 2>/dev/
 Use Section F to write a 2–3 line "Day shape" paragraph at the top of the report's Priorities section:
 > User worked across `my-app` (12 commits) AND a side-repo `notes-cli` (3 commits). VSCode had design specs from Figma open in the morning; pm was 3 PR review sessions. Calendar shows a 14–15 1:1 — that's the activity gap. zsh history shows `npm install some-dep@3.18-rc1` then `expo prebuild --clean` — likely the cause of the 3pm rebuild the user abandoned (failed install). Night agent should consider whether the dep bump is relevant to any open PR.
 
+## NIGHT-AGENT QA-GAP — the highest-signal check
+
+Cross-reference what last night's brief shipped / touched / marked `ready` against what the user did in their project TODAY. If the user hand-committed a fix to a feature or file the night agent touched (or marked `ready`), that's a proven defect the night pipeline missed — the single highest-signal source that the night agent's quality bar is too low.
+
+Build the night footprint from the brief's patch list + `ready`/`ready-with-notes` markers + the night-run commit-time window (your configured run window, e.g. 00:00–07:00 local). **Do NOT rely on git author alone** — the night agent may commit under an identity that overlaps the user's own commits, so `--author` can return one undifferentiated set. If you cannot cleanly separate night vs daytime commits, SAY SO rather than guessing a gap.
+
+For each gap:
+- (a) Name the SPECIFIC night-agent check that should have caught it (a recipe rule, a verify step, a UI-walkthrough assertion — was the screen even opened?).
+- (b) Propose the `prompt.md` strengthening (usually ARCHITECTURAL — surface as DRAFT). If the check exists but was skipped, the fix is closing the skip loophole, not adding a new check.
+- (c) If it's a recurring class (2nd+ time), add a memory dopisek so the pattern is remembered.
+
+If you find none, say so explicitly ("no night-agent QA-gaps — the user's commits today don't overlap last night's footprint"). This is the meta-level "do my work for me": it's how the system learns from "agent shipped X, user fixed it by hand the next day."
+
 ## Tone
 
 This report is consumed by another LLM (the night agent), not by a human. Be dense, terse, factual. Don't editorialize. Cite real numbers + file paths + names.

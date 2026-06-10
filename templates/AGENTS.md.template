@@ -1,0 +1,45 @@
+# AGENTS.md — navigating this Night Shift Agent install
+
+> For any agent (a Claude Code session, a subagent, the meta-agent) working in
+> THIS install dir. Point of this file: **targeted reads, not whole-file reads.**
+> `prompt.md` and `run.sh` are large generated files — slurping either blows your
+> context. Grep the anchors below, then read a small offset window.
+
+## Context discipline
+
+- DON'T `Read` `prompt.md` / `run.sh`{{#if meta_agent_enabled}} / `meta-agent.sh`{{/if}} in full.
+- DO `grep -n '<anchor text>' <file>`, then `Read` with a small `offset`/`limit`.
+- Anchor on banner text (`=== STEP …`, `## …`), never line numbers — they drift.
+
+## File map
+
+| file | role | read when |
+|---|---|---|
+| `prompt.md` | the agent's brain — STEP flow + recipes | what the agent DOES each night |
+| `settings.json` | scoped permissions (the deny list is non-relaxable) | changing what's allowed/denied |
+| `run.sh` | night orchestrator (lock, watchdog, wall timers, claude invoke) | run flow / reliability |
+| `BASH_PATTERNS.md` reference | P1..P23 reusable bash mechanisms | understanding a timer/watchdog |
+{{#if meta_agent_enabled}}
+| `meta-agent.sh` / `meta-prompt.md` | post-night self-improvement + merge policy | merge / backlog policy |
+| `META-DECISIONS.md` | anti-revert ledger + do_not_touch zones | BEFORE changing protected behavior |
+{{/if}}
+{{#if ui_automation_enabled}}
+| `.claude/agents/tester.md` | live UI walkthrough / verify ({{ tester_flow }}) | UI verification behavior |
+{{/if}}
+| `.claude/agents/coder.md`, `reviewer.md`, … | subagent definitions | the patch pipeline |
+
+## Hard rules (don't fight them)
+
+{{#if snapshot_user_repo}}
+- **Never mutate the user's project** outside `protect-user-state.sh apply/restore`. Patches go to the agent worktree, never a branch in the user's checkout.
+{{/if}}
+- **Producer, not poster.** External send/post/schedule tools are denied in `settings.json`{{#if write_opt_in_summary}} except: {{ write_opt_in_summary }}{{/if}} — drafts only; the user sends in the morning.
+{{#if meta_agent_enabled}}
+- Before changing protected behavior: read `META-DECISIONS.md` do_not_touch zones.
+{{/if}}
+
+## Recipes configured for this install
+
+{{#each recipes}}
+- {{ this }}
+{{/each}}
