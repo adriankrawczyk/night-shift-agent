@@ -17,15 +17,50 @@ DM_LOCK="$INSTALL_DIR/.daily-meta-lock"
 
 mkdir -p "$DM_DIR"
 
-# Lock (Pattern P1 — atomic mkdir)
+# Lock (Pattern P1 — atomic mkdir, with pid file for the suicide timer)
 if ! mkdir "$DM_LOCK" 2>/dev/null; then
   echo "daily-meta-lock held — exiting" >> "$DM_LOG"
   exit 1
 fi
-trap 'rm -rf "$DM_LOCK"' EXIT
+DM_LOCK_PID_FILE="$DM_LOCK/pid"
+echo $$ > "$DM_LOCK_PID_FILE"
+DM_CAFFEINATE_PID=""
+cleanup_dm() {
+  [[ -n "${DM_CAFFEINATE_PID:-}" ]] && kill "$DM_CAFFEINATE_PID" 2>/dev/null
+  rm -rf "$DM_LOCK"
+}
+trap 'cleanup_dm' EXIT
 
 emit_log() { echo "$(date -u +%FT%TZ) [daily-meta] $*" | tee -a "$DM_LOG"; }
 emit_log "starting"
+
+# Self-caffeinate — runs detached pre-night; hold our own sleep assertion.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -dis -t 2400 & DM_CAFFEINATE_PID=$!
+fi
+
+# === Pattern P19: absolute wall-clock suicide timer (2h cap, above the 1800s budget) ===
+DM_ABS_MAX_S="${NIGHT_SHIFT_DM_ABS_MAX_SEC:-7200}"
+_dm_self=$$
+(
+  trap '' HUP INT TERM
+  zmodload zsh/system 2>/dev/null
+  _me="${sysparams[pid]:-0}"
+  _dl=$(($(date +%s) + DM_ABS_MAX_S))
+  while (( $(date +%s) < _dl )); do sleep 60; done
+  [[ -f "$DM_LOCK_PID_FILE" && "$(cat "$DM_LOCK_PID_FILE" 2>/dev/null)" == "$_dm_self" ]] || exit 0
+  ps -p "$_dm_self" -o command= 2>/dev/null | grep -q 'daily-meta[.]sh' || exit 0
+  typeset -a _vics
+  # zsh-specific (script runs under zsh).
+  # shellcheck disable=SC2296,SC2053,SC2179,SC2128,SC2034
+  _collect() { local p=$1 c; for c in ${(f)"$(pgrep -P $p 2>/dev/null)"}; do [[ $c == $_me ]] && continue; _vics+=$c; _collect $c; done; }
+  _collect "$_dm_self"
+  kill -TERM "$_dm_self" 2>/dev/null; sleep 20
+  # shellcheck disable=SC2128
+  for c in $_vics; do kill -KILL "$c" 2>/dev/null; done
+  kill -KILL "$_dm_self" 2>/dev/null
+  [[ -f "$DM_LOCK_PID_FILE" && "$(cat "$DM_LOCK_PID_FILE" 2>/dev/null)" == "$_dm_self" ]] && rm -rf "$DM_LOCK" 2>/dev/null
+) &
 
 # Don't run if already produced today's report
 if [[ -f "$DM_REPORT" ]] && [[ -s "$DM_REPORT" ]]; then

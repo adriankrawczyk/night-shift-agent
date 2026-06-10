@@ -28,13 +28,59 @@ META_LOG="$META_LOG_DIR/meta-${TODAY_LOCAL}.log"
 # === Pattern P6: minimal logging ===
 emit_log() { echo "$(date -u +%FT%TZ) [meta] $*" | tee -a "$META_LOG"; }
 
-# === Pattern P1: meta-specific lock ===
+# === Pattern P1: meta-specific lock (with pid file for the suicide timer) ===
 META_LOCK_DIR="$ROUTINE_DIR/.meta-lock"
+META_LOCK_PID_FILE="$META_LOCK_DIR/pid"
+GIT_MUTATE_OWNER_FILE="$ROUTINE_DIR/runs/.git-mutate.owner"
+META_CAFFEINATE_PID=""
 if ! mkdir "$META_LOCK_DIR" 2>/dev/null; then
   emit_log "FATAL: meta-lock held — exiting"
   exit 1
 fi
-trap 'rm -rf "$META_LOCK_DIR"' EXIT
+echo $$ > "$META_LOCK_PID_FILE"
+
+cleanup_meta() {
+  # Release the shared git-mutate mutex if we own it (item: meta <-> daily race).
+  if [[ -f "${GIT_MUTATE_OWNER_FILE:-}" ]]; then
+    _gm_own=$(tr -dc '0-9' < "$GIT_MUTATE_OWNER_FILE" 2>/dev/null)
+    [[ "$_gm_own" == "$$" ]] && rm -f "$GIT_MUTATE_OWNER_FILE"
+  fi
+  [[ -n "${META_CAFFEINATE_PID:-}" ]] && kill "$META_CAFFEINATE_PID" 2>/dev/null
+  rm -rf "$META_LOCK_DIR"
+}
+trap 'cleanup_meta' EXIT
+
+# Self-caffeinate — meta-agent runs detached post-night; hold our own sleep
+# assertion so the Mac can't sleep mid-run and stall us. Killed in cleanup.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -dis -t 2400 & META_CAFFEINATE_PID=$!
+fi
+
+# === Pattern P19: absolute wall-clock suicide timer (1h cap, far above the 1800s budget) ===
+# Hard-bounds total wall time even if the per-attempt timeout fails. Poll loop so
+# it ticks across macOS sleep; snapshot descendants before killing; self-abort if
+# the lock is no longer ours. See BASH_PATTERNS.md P19.
+META_ABS_MAX_S="${NIGHT_SHIFT_META_ABS_MAX_SEC:-3600}"
+_meta_self=$$
+(
+  trap '' HUP INT TERM
+  zmodload zsh/system 2>/dev/null
+  _me="${sysparams[pid]:-0}"
+  _dl=$(($(date +%s) + META_ABS_MAX_S))
+  while (( $(date +%s) < _dl )); do sleep 60; done
+  [[ -f "$META_LOCK_PID_FILE" && "$(cat "$META_LOCK_PID_FILE" 2>/dev/null)" == "$_meta_self" ]] || exit 0
+  ps -p "$_meta_self" -o command= 2>/dev/null | grep -q 'meta-agent[.]sh' || exit 0
+  typeset -a _vics
+  # zsh-specific (script runs under zsh).
+  # shellcheck disable=SC2296,SC2053,SC2179,SC2128,SC2034
+  _collect() { local p=$1 c; for c in ${(f)"$(pgrep -P $p 2>/dev/null)"}; do [[ $c == $_me ]] && continue; _vics+=$c; _collect $c; done; }
+  _collect "$_meta_self"
+  kill -TERM "$_meta_self" 2>/dev/null; sleep 20
+  # shellcheck disable=SC2128
+  for c in $_vics; do kill -KILL "$c" 2>/dev/null; done
+  kill -KILL "$_meta_self" 2>/dev/null
+  [[ -f "$META_LOCK_PID_FILE" && "$(cat "$META_LOCK_PID_FILE" 2>/dev/null)" == "$_meta_self" ]] && rm -rf "$META_LOCK_DIR" 2>/dev/null
+) &
 
 emit_log "Meta-agent starting"
 
@@ -52,6 +98,21 @@ if (( existing_open >= 3 )); then
   emit_log "Cap: $existing_open meta-PRs already open. Exiting."
   exit 0
 fi
+
+# === Shared git-mutate mutex (meta-agent <-> daily-meta) ===
+# Both agents checkout/reset the SAME install tree. Without a shared advisory
+# mutex a concurrent checkout/reset race can destroy in-flight work. Non-blocking,
+# self-healing (a dead owner is ignored); contended => defer cleanly. Acquire
+# BEFORE the dirty-check; released in cleanup_meta.
+mkdir -p "$ROUTINE_DIR/runs" 2>/dev/null
+if [[ -f "$GIT_MUTATE_OWNER_FILE" ]]; then
+  _gm_owner=$(tr -dc '0-9' < "$GIT_MUTATE_OWNER_FILE" 2>/dev/null)
+  if [[ -n "$_gm_owner" ]] && [[ "$_gm_owner" != "$$" ]] && kill -0 "$_gm_owner" 2>/dev/null; then
+    emit_log "DEFER: another git-mutating agent holds the shared mutex (PID $_gm_owner) — exiting"
+    exit 0
+  fi
+fi
+echo "$$" > "$GIT_MUTATE_OWNER_FILE"
 
 # === Restore git working tree if dirty ===
 if ! git -C "$ROUTINE_DIR" diff --quiet || ! git -C "$ROUTINE_DIR" diff --cached --quiet; then
@@ -125,23 +186,54 @@ fi
 # recovers from a broken brief by triggering a fresh night-agent run.
 RERUN_DECISION_FILE="/tmp/meta-agent-decision.json"
 RERUN_DEADLINE_HOUR="${RERUN_DEADLINE_HOUR:-8}"   # 08:00 local — minimum buffer before the user wakes up
-maybe_spawn_rerun() {
-  [[ ! -f "$RERUN_DECISION_FILE" ]] && return
-  command -v jq >/dev/null 2>&1 || return
-  jq empty "$RERUN_DECISION_FILE" 2>/dev/null || return
 
-  local request_rerun
-  request_rerun=$(jq -r '.request_rerun // false' "$RERUN_DECISION_FILE")
+# Deterministic "did the latest night run crash?" — TRUE when the most recent run
+# jsonl shows no delivered brief AND no legit agent-declared skip, but the run
+# terminated (preflight_failed, or run_finished without delivery). This fires even
+# if meta-claude itself hung and never wrote request_rerun — the bulletproof half
+# of rerun-until-pass.
+night_run_crashed() {
+  local j
+  j=$(ls -t "$ROUTINE_DIR"/runs/*/*.jsonl "$ROUTINE_DIR"/runs/[0-9]*.jsonl 2>/dev/null | head -1)
+  [[ -z "$j" || ! -f "$j" ]] && return 1
+  grep -q '"event":"delivery_complete"' "$j" 2>/dev/null && return 1
+  grep -q '"event":"skip_declared"' "$j" 2>/dev/null && return 1
+  grep -qE '"event":"(preflight_failed|run_finished)"' "$j" 2>/dev/null && return 0
+  return 1
+}
+
+maybe_spawn_rerun() {
+  command -v jq >/dev/null 2>&1 || return
+
+  local request_rerun="false" rerun_reason="unspecified"
+  if [[ -f "$RERUN_DECISION_FILE" ]] && jq empty "$RERUN_DECISION_FILE" 2>/dev/null; then
+    request_rerun=$(jq -r '.request_rerun // false' "$RERUN_DECISION_FILE")
+    rerun_reason=$(jq -r '.rerun_reason // "unspecified"' "$RERUN_DECISION_FILE")
+  fi
+  if night_run_crashed; then
+    request_rerun="true"
+    [[ "$rerun_reason" == "unspecified" ]] && rerun_reason="deterministic: latest night run crashed (no delivery, no legit skip)"
+  fi
   [[ "$request_rerun" != "true" ]] && return
 
-  local rerun_reason
-  rerun_reason=$(jq -r '.rerun_reason // "unspecified"' "$RERUN_DECISION_FILE")
-
-  # Anti-loop: skip if already re-ran today
-  local rerun_flag="$ROUTINE_DIR/runs/${TODAY_LOCAL}-rerun.flag"
-  if [[ -f "$rerun_flag" ]]; then
-    emit_log "Re-run REQUESTED but prior re-run already happened today (flag: $rerun_flag) — skipping"
+  # Per-night retry CAP (counter, not a one-shot flag): re-run "until it passes
+  # OR the cap is hit". The run.sh -> meta-agent spawn is the outer loop.
+  local rerun_cap="${NIGHT_SHIFT_RERUN_CAP:-4}"
+  local rerun_count_file="$ROUTINE_DIR/runs/${TODAY_LOCAL}-rerun.count"
+  local rerun_count=0
+  [[ -f "$rerun_count_file" ]] && rerun_count=$(tr -dc '0-9' < "$rerun_count_file" 2>/dev/null)
+  rerun_count=${rerun_count:-0}
+  if (( rerun_count >= rerun_cap )); then
+    emit_log "Re-run NEEDED but per-night cap reached ($rerun_count/$rerun_cap) — stopping"
     return
+  fi
+  # Don't spawn a duplicate while a run.sh already holds the lock.
+  if [[ -f "$ROUTINE_DIR/.lock/pid" ]]; then
+    local _lp; _lp=$(tr -dc '0-9' < "$ROUTINE_DIR/.lock/pid" 2>/dev/null)
+    if [[ -n "$_lp" ]] && kill -0 "$_lp" 2>/dev/null; then
+      emit_log "Re-run NEEDED but a run.sh already holds the lock (PID $_lp) — not spawning a duplicate"
+      return
+    fi
   fi
 
   # Time budget: need ≥4h until RERUN_DEADLINE_HOUR local. Computed via BSD date
@@ -163,8 +255,8 @@ maybe_spawn_rerun() {
     return
   fi
 
-  emit_log "Re-run APPROVED: reason='$rerun_reason', ${hours_until_deadline}h until ${RERUN_DEADLINE_HOUR}:00"
-  echo "rerun requested at $(date -u +%FT%TZ): $rerun_reason" > "$rerun_flag"
+  emit_log "Re-run APPROVED (attempt $((rerun_count+1))/$rerun_cap): reason='$rerun_reason', ${hours_until_deadline}h until ${RERUN_DEADLINE_HOUR}:00"
+  echo "$(( rerun_count + 1 ))" > "$rerun_count_file"
 
   {{#if multi_machine}}
   # Overwrite coord status='failed' so night-agent's STEP 0.4 doesn't skip
