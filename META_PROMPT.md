@@ -42,6 +42,10 @@ ls "$INSTALLER_DIR/wizard-questions.yaml" "$INSTALLER_DIR/templates/" "$INSTALLE
 
 If any file is missing, stop and tell the user to re-clone or update the installer. Do not invent fallbacks.
 
+### 1.5. Open the install diagnostic log
+
+Set up `INSTALL_LOG` + the `ilog` helper now (see the **INSTALL DIAGNOSTIC LOG** section) and write `wizard_start`. Everything from here on — every phase, scan, MCP install, render, and problem — gets appended so a broken build can be handed back for debugging.
+
 ### 2. Initialize scan storage (with resume detection)
 
 ```bash
@@ -147,13 +151,15 @@ Phase-specific logic lives in `phases/phase-N.md` (one file per phase, 0..10). F
 ```bash
 # Read the phase file ON DEMAND — keeps the per-phase context window small
 PHASE_FILE="$INSTALLER_DIR/phases/phase-${N}.md"
-[ -f "$PHASE_FILE" ] || { echo "FATAL: missing $PHASE_FILE"; exit 1; }
+[ -f "$PHASE_FILE" ] || { ilog error phase_file_missing "$PHASE_FILE"; echo "FATAL: missing $PHASE_FILE"; exit 1; }
+ilog info phase_start "$N"
 # Read it, follow its instructions, then move to phase N+1
+# ...and at the end of the phase: ilog info phase_done "$N"
 ```
 
 Inside each phase file you'll find the questions to ask + scan-driven options + post-question actions. Cross-reference each question's `tier_filter` in `wizard-questions.yaml` — skip if user's tier isn't in the filter list. Also check `depends_on` — skip if the dependency isn't satisfied.
 
-After every question: `jq` update `$ANSWERS_JSON`. After every phase completes: `jq` update `$STATE_FILE.last_phase = N`.
+After every question: `jq` update `$ANSWERS_JSON` AND `ilog info question "<qid>=<answer>"` (secrets → `secret_captured <name>`, never the value). After every phase completes: `jq` update `$STATE_FILE.last_phase = N`. Append diagnostic events throughout per the INSTALL DIAGNOSTIC LOG section.
 
 **Why per-phase files**: phase content adds up to ~700 lines if loaded all at once. Loading on demand means a Minimal-tier user (~10 questions) only pulls in the phases they need. Reduces context drift and makes each phase independently editable.
 
@@ -438,7 +444,46 @@ When scanning the user's project in Phase 0, defensive handling for:
 | **No source files** (empty project, just README) | `find "$path" -name '*.{js,ts,py,go,rs,rb,...}' \| head -1` empty | Set `.projects[i].source_files_count = 0`. `recommended_hard_wall_minutes` defaults to 60 min. Skip verify-method auto-detection — ask user explicitly in Q5.1. |
 | **Multi-project, mixed stacks** | `.projects[]` has different `.stack` values | Treat each project independently in the scan summary. Per-project verify_methods. Single render-ctx still works — templates iterate `{{#each projects}}`. |
 
+## INSTALL DIAGNOSTIC LOG (write throughout — this is how a broken build gets debugged)
+
+The whole point: when the wizard runs on someone else's machine, capture EVERYTHING that happened and every problem hit, in one file, so the user can hand it back for debugging (`bash install.sh --collect-logs` copies it to the clipboard). `install.sh` already logged the bash half (env, tool versions, clone, integrity) and exported the path. You append to the SAME file.
+
+**Setup (do this in the STARTUP SEQUENCE, before Phase 0):**
+```bash
+# Use the path install.sh exported; else compute the same default it uses.
+INSTALL_LOG="${NIGHT_SHIFT_INSTALL_LOG:-$HOME/.config/night-shift-agent/install-logs/install-wizard-$(date -u +%Y%m%dT%H%M%SZ).log}"
+mkdir -p "$(dirname "$INSTALL_LOG")"
+ilog() { printf '%s [%s] wizard %s\n' "$(date -u +%FT%TZ)" "${1:-info}" "${*:2}" >> "$INSTALL_LOG" 2>/dev/null || true; }
+ilog info wizard_start "installer=$INSTALLER_DIR tier=<once known>"
+```
+
+**Append an event (terse, one line) at EVERY one of these — especially the problems:**
+- `phase_start <N>` / `phase_done <N>` — every phase boundary.
+- `scan_result` — what Phase 0 found: project count, stacks, detected MCPs, `gh auth` state, GitHub remote yes/no, anything that failed to scan (with the error).
+- `question` — each Q id + the chosen answer (NEVER log secret values — log `secret_captured <name>` instead of the value).
+- `mcp_install` — per service: the exact install command, and the result (`ok` / the verbatim error + the manual URL you gave). MCP installs are the #1 thing that breaks a build.
+- `derived_vars` — the derived-var assembly result, and ANY var that was missing/empty when you expected a value.
+- `render <template>` — per template at Phase 10: `ok`, or the unresolved `{{ ... }}` / `<<MISSING>>` markers you hit and how you resolved them.
+- `file_written <path>` — each generated file (+ `chmod`/`launchctl load` outcomes).
+- `warn` / `error` — every retry, recovery, fallback, skipped service, disabled recipe, or anything you had to work around. Be generous here: an event you didn't think mattered is often the clue.
+
+**At the end (DONE STATE), write a summary block** — this is what gets read first:
+```bash
+{
+  echo "===== wizard summary ====="
+  echo "tier: <tier>  projects: <n>  mcps: <list>  recipes: <list>  channels: <list>"
+  echo "files written: <count>   schedule: <human readable or none>"
+  echo "PROBLEMS ENCOUNTERED:"
+  echo "  - <each warn/error/workaround, one line; or 'none'>"
+  echo "===== end ====="
+} >> "$INSTALL_LOG"
+```
+
+Never block the install on a log-write failure (`|| true` everywhere). Never log secret values, OAuth tokens, or `secrets.json` contents — log the key name only.
+
 ## FAILURE HANDLING
+
+> Every case below MUST also `ilog error <event> "<verbatim error>"` to the install diagnostic log before/while you surface it to the user — that log is the only artifact a remote user can hand back for debugging.
 
 ### If scan fails (e.g., gh auth needed)
 Surface the actual error. Walk user through the recovery command. Then re-run the affected scan step. Never proceed with stale/missing scan data.
@@ -567,9 +612,11 @@ If any item fails: stop, fix, then proceed.
 ## DONE STATE
 
 After Phase 10 completes:
+- Write the `===== wizard summary =====` block (incl. `PROBLEMS ENCOUNTERED`) to `$INSTALL_LOG` per the INSTALL DIAGNOSTIC LOG section, then `ilog info wizard_done "ok"`.
 - Print a 5-line summary of what was created
 - Show the user the file at `<install>/prompt.md` and where the run logs will appear
 - Confirm the schedule (if any) is registered
+- Tell the user: "If anything looked off during setup, run `bash install.sh --collect-logs` to copy the full diagnostic log to your clipboard and hand it to your helper."
 - Optionally fire the test-run
 
 Then exit. The user has a working night-shift agent.

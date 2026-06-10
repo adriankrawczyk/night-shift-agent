@@ -21,6 +21,8 @@ mcp__mcp-registry__suggest_connectors with keywords from Q1.1 + recipe names
 
 Build the service map and present per the yaml's q2_1 entry. Multi-select skip list.
 
+> **Diagnostic log:** MCP install is the #1 thing that breaks a build. Per service, `ilog info mcp_install "<service>: <command> -> ok"`, or on failure `ilog error mcp_install "<service>: <verbatim error>; gave manual URL <url>; marked skipped"`. Also log any recipe you had to disable because its service didn't install.
+
 Also include the special "Your own Claude Code session history" option (no install needed, just a permission flag). If user wants this, set `.read_cc_history = true`.
 
 **REQUIRED post-Q2.1 derivation step** (must run BEFORE evaluating Q2.2's `depends_on: len(services_to_install) > 0`):

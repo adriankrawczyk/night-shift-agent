@@ -40,6 +40,8 @@ Ask: change anything?
 
 For each template in `templates/`, read it, fill placeholders from `$ANSWERS_JSON` + `$SCAN_JSON`, write to install location.
 
+> **Diagnostic log:** per template, `ilog info render "<template> ok"` — or, if you hit any unresolved `{{ var }}` / `<<MISSING>>` / `<<partial-missing>>`, `ilog error render "<template>: <the marker(s)>"` and how you resolved it. Then `ilog info file_written "<path>"` (+ chmod / launchctl outcome) for each generated file. This is the highest-value capture point — a render gap here is exactly what a remote user needs to hand back.
+
 Placeholders use `{{ key }}` syntax. Conditionals use `{{#if key}}...{{/if}}`. Loops use `{{#each list}}...{{/each}}`.
 
 See `templates/README.md` for the full template grammar.

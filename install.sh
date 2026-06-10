@@ -6,6 +6,7 @@
 #   bash install.sh --dir <PATH>     # install to non-default location
 #   bash install.sh --update         # pull latest installer + re-launch wizard
 #   bash install.sh --no-launch      # clone/update only, don't open claude
+#   bash install.sh --collect-logs   # copy the install diagnostic log to clipboard
 #
 # Remote one-liner:
 #   curl -fsSL https://raw.githubusercontent.com/adriankrawczyk/night-shift-agent/main/install.sh | bash
@@ -24,6 +25,16 @@ REPO_URL="${NIGHT_SHIFT_REPO_URL:-https://github.com/adriankrawczyk/night-shift-
 INSTALLER_DIR="${NIGHT_SHIFT_INSTALLER_DIR:-$HOME/.night-shift-installer}"
 LAUNCH=1
 UPDATE_ONLY=0
+COLLECT_LOGS=0
+
+# === Install diagnostic log ===
+# Captures EVERYTHING about a build at someone's machine — env, tool versions,
+# clone/update, integrity, then (via the wizard) every phase, scan, MCP install,
+# render and problem — so the whole thing can be handed back for debugging.
+# Lives outside the repo so a re-clone never wipes it.
+INSTALL_LOG_DIR="${NIGHT_SHIFT_INSTALL_LOG_DIR:-$HOME/.config/night-shift-agent/install-logs}"
+INSTALL_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+INSTALL_LOG="$INSTALL_LOG_DIR/install-$INSTALL_RUN_ID.log"
 
 # === Arg parsing ===
 while [ $# -gt 0 ]; do
@@ -31,8 +42,9 @@ while [ $# -gt 0 ]; do
     --dir) INSTALLER_DIR="$2"; shift 2 ;;
     --update) UPDATE_ONLY=1; shift ;;
     --no-launch) LAUNCH=0; shift ;;
+    --collect-logs) COLLECT_LOGS=1; shift ;;
     -h|--help)
-      sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *)
       echo "Unknown flag: $1 (use --help)" >&2; exit 2 ;;
@@ -44,16 +56,88 @@ c_green() { printf '\033[32m%s\033[0m\n' "$*"; }
 c_red()   { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 c_dim()   { printf '\033[2m%s\033[0m\n' "$*"; }
 
+# ilog: append a timestamped event to the install diagnostic log (best-effort,
+# never fatal). Use for every meaningful step + every problem.
+ilog() { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "${1:-info}" "${*:2}" >> "$INSTALL_LOG" 2>/dev/null || true; }
+
+# collect_logs: scrub credential-shaped strings, bundle the newest install log +
+# the wizard state, copy to clipboard so the user can paste it back for debugging.
+collect_logs() {
+  local latest
+  latest="$(ls -t "$INSTALL_LOG_DIR"/install-*.log 2>/dev/null | head -1)"
+  if [ -z "$latest" ]; then
+    c_red "No install logs found in $INSTALL_LOG_DIR"
+    c_red "Run an install first (bash install.sh), then re-run --collect-logs."
+    exit 1
+  fi
+  local state="$HOME/.config/night-shift-agent/state.json"
+  local bundle
+  bundle="$({
+    echo "===== Night Shift Agent — install diagnostic bundle ====="
+    echo "host:        $(hostname -s 2>/dev/null)"
+    echo "generated:   $(date -u +%FT%TZ)"
+    echo "macOS:       $(sw_vers -productVersion 2>/dev/null) ($(uname -m))"
+    echo "installer:   $INSTALLER_DIR"
+    echo "log file:    $latest"
+    echo ""
+    echo "----- wizard state (answers; secrets are stored separately and NOT included) -----"
+    cat "$state" 2>/dev/null || echo "(no state.json — wizard may not have started)"
+    echo ""
+    echo "----- install + wizard log -----"
+    cat "$latest"
+  } | sed -E \
+      -e 's/ghp_[A-Za-z0-9_-]{20,}/ghp_<REDACTED>/g' \
+      -e 's/ghs_[A-Za-z0-9_-]{20,}/ghs_<REDACTED>/g' \
+      -e 's/github_pat_[A-Za-z0-9_-]+/github_pat_<REDACTED>/g' \
+      -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/xox?-<REDACTED>/g' \
+      -e 's/sk-ant-[A-Za-z0-9_-]+/sk-ant-<REDACTED>/g' \
+      -e 's/AKIA[0-9A-Z]{16}/AKIA<REDACTED>/g')"
+  if command -v pbcopy >/dev/null 2>&1 && printf '%s' "$bundle" | pbcopy 2>/dev/null; then
+    c_green "✓ Copied install diagnostics to clipboard ($(printf '%s' "$bundle" | wc -l | tr -d ' ') lines). Paste it to your helper."
+  else
+    c_dim "pbcopy unavailable — the bundle is the file: $latest"
+  fi
+  echo "  (newest of: $(ls -1 "$INSTALL_LOG_DIR"/install-*.log 2>/dev/null | wc -l | tr -d ' ') logs in $INSTALL_LOG_DIR)"
+}
+
+# --collect-logs is a standalone action — do it and exit before any install work.
+if [ "$COLLECT_LOGS" -eq 1 ]; then
+  collect_logs
+  exit 0
+fi
+
+# Open the log. Tee install.sh's own output into it so the captured narrative
+# matches what the user saw; fds are restored before handing off to the wizard
+# (so claude's interactive REPL is unaffected).
+mkdir -p "$INSTALL_LOG_DIR" 2>/dev/null || true
+{
+  echo "===== install run $INSTALL_RUN_ID ====="
+  echo "started:   $(date -u +%FT%TZ)"
+  echo "macOS:     $(sw_vers -productVersion 2>/dev/null) build $(sw_vers -buildVersion 2>/dev/null) ($(uname -m))"
+  echo "shell:     ${SHELL:-?}   bash: ${BASH_VERSION:-?}"
+  echo "git:       $(git --version 2>/dev/null)"
+  echo "jq:        $(jq --version 2>/dev/null)"
+  echo "claude:    $(claude --version 2>/dev/null || echo 'not found')"
+  echo "gh:        $(gh --version 2>/dev/null | head -1 || echo 'not found')"
+  echo "installer: $INSTALLER_DIR   repo: $REPO_URL"
+  echo "flags:     UPDATE_ONLY=$UPDATE_ONLY LAUNCH=$LAUNCH"
+  echo "========================================="
+} >> "$INSTALL_LOG" 2>/dev/null || true
+exec 3>&1 4>&2
+exec > >(tee -a "$INSTALL_LOG") 2>&1
+
 # === Preflight ===
 c_blue "Night Shift Agent — installer"
 echo ""
 
+ilog info preflight_start "checking required tools: git jq claude"
 missing=()
 for bin in git jq claude; do
   command -v "$bin" >/dev/null 2>&1 || missing+=("$bin")
 done
 
 if [ ${#missing[@]} -gt 0 ]; then
+  ilog error preflight_missing_tools "${missing[*]}"
   c_red "Missing required tools: ${missing[*]}"
   echo ""
   case " ${missing[*]} " in
@@ -70,34 +154,47 @@ fi
 
 # Optional but recommended
 for bin in gh terminal-notifier; do
-  command -v "$bin" >/dev/null 2>&1 || c_dim "  optional: $bin not found (some features may be limited)"
+  command -v "$bin" >/dev/null 2>&1 || { c_dim "  optional: $bin not found (some features may be limited)"; ilog warn optional_tool_missing "$bin"; }
 done
+ilog info preflight_ok "all required tools present"
 
 # === Clone or update ===
 if [ -d "$INSTALLER_DIR/.git" ]; then
   c_dim "Installer at $INSTALLER_DIR — pulling latest"
-  git -C "$INSTALLER_DIR" pull --ff-only --quiet || {
+  if pull_out="$(git -C "$INSTALLER_DIR" pull --ff-only 2>&1)"; then
+    ilog info installer_pull_ok "$pull_out"
+  else
+    ilog error installer_pull_failed "$pull_out"
     c_red "git pull failed in $INSTALLER_DIR (uncommitted changes? wrong remote?)"
     exit 1
-  }
+  fi
 elif [ -d "$INSTALLER_DIR" ]; then
   # Directory exists but isn't a git repo
   if [ -f "$INSTALLER_DIR/META_PROMPT.md" ] && [ -f "$INSTALLER_DIR/wizard-questions.yaml" ]; then
     c_dim "Installer at $INSTALLER_DIR (not a git checkout — using as-is)"
+    ilog warn installer_not_git "using existing non-git checkout at $INSTALLER_DIR"
   else
+    ilog error installer_invalid_dir "$INSTALLER_DIR exists but lacks META_PROMPT.md/wizard-questions.yaml"
     c_red "$INSTALLER_DIR exists but isn't a valid installer (missing META_PROMPT.md or wizard-questions.yaml)"
     c_red "Move it aside or pass --dir <other-path>."
     exit 1
   fi
 else
   c_dim "Cloning $REPO_URL → $INSTALLER_DIR"
-  git clone --depth 1 --quiet "$REPO_URL" "$INSTALLER_DIR"
+  if clone_out="$(git clone --depth 1 "$REPO_URL" "$INSTALLER_DIR" 2>&1)"; then
+    ilog info installer_cloned "$REPO_URL -> $INSTALLER_DIR"
+  else
+    ilog error installer_clone_failed "$clone_out"
+    c_red "git clone failed: $clone_out"
+    exit 1
+  fi
 fi
 
 # === Integrity check ===
 required=(META_PROMPT.md wizard-questions.yaml BASH_PATTERNS.md MCP_PATTERNS.md PERSONA_BUILDER.md COORD_PATTERN.md VERSION templates recipes phases)
 for f in "${required[@]}"; do
   if [ ! -e "$INSTALLER_DIR/$f" ]; then
+    ilog error integrity_failed "missing $INSTALLER_DIR/$f"
     c_red "Integrity check failed: missing $INSTALLER_DIR/$f"
     c_red "Run: bash $0 --update"
     exit 1
@@ -105,12 +202,14 @@ for f in "${required[@]}"; do
 done
 INSTALLER_VERSION="$(cat "$INSTALLER_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
 INSTALLER_COMMIT="$(git -C "$INSTALLER_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+ilog info installer_ready "v${INSTALLER_VERSION:-?} @ ${INSTALLER_COMMIT}"
 c_green "✓ Installer ready at $INSTALLER_DIR (v${INSTALLER_VERSION:-?} @ ${INSTALLER_COMMIT})"
 
 if [ "$UPDATE_ONLY" -eq 1 ] || [ "$LAUNCH" -eq 0 ]; then
+  ilog info skip_launch "UPDATE_ONLY=$UPDATE_ONLY LAUNCH=$LAUNCH — not launching wizard"
   echo ""
   c_dim "Skip-launch mode. To start the wizard manually:"
-  echo "  claude \"Read $INSTALLER_DIR/META_PROMPT.md and run the wizard.\""
+  echo "  NIGHT_SHIFT_INSTALL_LOG=$INSTALL_LOG claude \"Read $INSTALLER_DIR/META_PROMPT.md and run the wizard.\""
   exit 0
 fi
 
@@ -118,9 +217,18 @@ fi
 echo ""
 c_blue "Launching wizard. The first question is about setup depth (Minimal / Balanced / Full)."
 c_dim "Setup takes ~20-30 min for Full tier. You can re-run with 'bash $0' to pick up where you left off."
+c_dim "Everything is logged to $INSTALL_LOG — run 'bash $0 --collect-logs' afterward to copy it for debugging."
 echo ""
 
-WIZARD_PROMPT="Read $INSTALLER_DIR/META_PROMPT.md and run the Night Shift Agent installer wizard. The installer is at $INSTALLER_DIR."
+# The wizard (a separate claude process) appends to the SAME diagnostic log via
+# this env var (META_PROMPT reads it). The prompt also states the path explicitly.
+export NIGHT_SHIFT_INSTALL_LOG="$INSTALL_LOG"
+WIZARD_PROMPT="Read $INSTALLER_DIR/META_PROMPT.md and run the Night Shift Agent installer wizard. The installer is at $INSTALLER_DIR. Append diagnostic events for every phase, scan, MCP install, render and problem to the install log at $INSTALL_LOG (also in \$NIGHT_SHIFT_INSTALL_LOG) per META_PROMPT's INSTALL DIAGNOSTIC LOG section."
+ilog info wizard_handoff "exec claude — wizard now owns the log at $INSTALL_LOG"
+
+# Detach the tee (restore original stdout/stderr) so claude's interactive REPL
+# is unaffected; the wizard appends to the log directly via the env var.
+exec 1>&3 2>&4
 
 # When run via `curl … | bash`, stdin is the curl pipe (no TTY). claude REPL
 # needs a TTY. Detect this and either reconnect to /dev/tty or fall back to
@@ -134,11 +242,12 @@ elif [ -e /dev/tty ]; then
   exec claude "$WIZARD_PROMPT" </dev/tty >/dev/tty 2>/dev/tty
 else
   # No TTY available (CI / headless / docker without -it) — print and exit
+  ilog warn no_tty "wizard not launched — no TTY; printed manual command"
   echo ""
   c_blue "No TTY detected — can't launch interactive wizard automatically."
   echo "Run this in your terminal to start the wizard:"
   echo ""
-  echo "  claude \"$WIZARD_PROMPT\""
+  echo "  NIGHT_SHIFT_INSTALL_LOG=$INSTALL_LOG claude \"$WIZARD_PROMPT\""
   echo ""
   exit 0
 fi
