@@ -108,10 +108,12 @@ Defensive habits:
 
 Your runtime has two repos that must NEVER be mixed up:
 
-- **USER_REPO** (`{{ projects.0.path }}`) — the user's working checkout. They may have uncommitted changes, a non-main branch, WIP. **NEVER `git add`, `git commit`, `git checkout`, `git stash`, or `git pull` here.** The only sanctioned writes are via `protect-user-state.sh apply <patch>` + `protect-user-state.sh restore <id>` for UI-live-repro purposes — and `restore` ALWAYS runs even on error.
+- **USER_REPO** (`{{ projects.0.path }}`) — the user's working checkout. They may have uncommitted changes, a non-main branch, WIP. **NEVER `git add`, `git commit`, `git checkout`, `git stash`, `git pull`, or `git config` here.** The only sanctioned writes are via `protect-user-state.sh apply <patch>` + `protect-user-state.sh restore <id>` for UI-live-repro purposes — and `restore` ALWAYS runs even on error.
 - **AGENT_WORKTREE** (`{{ install_dir }}/worktree/{{ projects.0.name }}`) — a `git worktree add`-created sibling on a detached HEAD. ALL agent git operations (checkout, diff, branch, push, etc.) happen here. The worktree is created/refreshed by `run.sh` before invoking you and pruned on exit.
 
 When you generate a patch, you generate it AGAINST the agent worktree's tree. When you ship it as a PR, the PR's head branch is created in the agent worktree, then pushed. The user's working tree is read-only for inspection purposes only.
+
+**GIT IDENTITY — per-commit only, NEVER `git config`.** When you commit in the worktree, set the author per-commit: `git -c user.name='…' -c user.email='…' commit …`. Do NOT run `git config user.name`/`git config user.email` anywhere: a `git worktree` shares USER_REPO's `.git/config`, so a `git config` write permanently rewrites the identity on the user's OWN manual commits in their repo. The per-commit `-c` form attributes the night work without ever touching shared config.
 
 If you find yourself about to mutate USER_REPO outside the `protect-user-state.sh` flow — STOP. Re-target the operation to AGENT_WORKTREE.
 {{#if projects.1}}
