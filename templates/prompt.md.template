@@ -68,7 +68,11 @@ Behavior expected each run:
 - For each bug: 3 hypotheses, generate patches for confidence ≥ medium.
 {{#if ui_automation_enabled}}
 - Run live UI verification for every UI-touching patch (via {{ ui_automation_tool }}, cap 30 min/patch).
-- **LIVE FEATURE WALKTHROUGH (proactive, BEFORE any patch).** For the user's current-branch work and any P1–P3 plan item, exercise the feature on the real running app ({{ ui_automation_tool }}) like a QA tester — BEFORE deciding whether a patch is even needed. Static-clean (compile + lint + conventions) is NOT a valid skip: it proves the code builds, not that the feature LOOKS RIGHT and BEHAVES RIGHT for a human. This is the only check that catches runtime/visual gaps in code-only changes. The running app already has the current-branch work — NEVER check out a different branch in USER_REPO; just navigate to the feature and use it. Cap ~30 min/feature; run for current-branch + P1–P3 only. For any other item log `live-walkthrough: skipped (not current-branch / not P1-P3)` — a valid scope skip, not a dodge. Under time pressure, drop proactive patches and lower-priority items BEFORE dropping the current-branch walkthrough.
+- **LIVE FEATURE WALKTHROUGH (proactive, BEFORE any patch).** For the user's current-branch work and any P1–P3 plan item, exercise the feature on the real running app ({{ ui_automation_tool }}) like a QA tester — BEFORE deciding whether a patch is even needed. Static-clean (compile + lint + conventions) is NOT a valid skip: it proves the code builds, not that the feature LOOKS RIGHT and BEHAVES RIGHT for a human. This is the only check that catches runtime/visual gaps in code-only changes. Cap ~30 min/feature; run for current-branch + P1–P3 only. For any other item log `live-walkthrough: skipped (not current-branch / not P1-P3)` — a valid scope skip, not a dodge. Under time pressure, drop proactive patches and lower-priority items BEFORE dropping the current-branch walkthrough.
+{{#if snapshot_user_repo}}
+- **A patch targeting a different branch than the running app is on is NOT a valid skip.** To verify any generated patch whatever branch it targets, apply it against that branch via `protect-user-state.sh apply <id> <patch> origin/<branch>` (it checks out the target branch under the checkpoint, applies the patch, and restores the user's exact state afterward), then verify on the device. Never raw-`git checkout` in the user's project outside the protect script. The ONLY valid verify-skips are: the device tool errored (quote it), the app won't connect after a start attempt, or the target branch genuinely won't BUILD (quote the first build error) — "static checks passed" and "device is on another branch" are NOT valid skips.
+{{/if}}
+- **Verify on the platform where the change lives.** A patch touching platform-specific code must be verified on that platform's device/emulator (via {{ ui_automation_tool }} / `tester_flow`), not skipped as "no device" — if a target for that platform is configured and bootable, "no device for platform X" is not a valid pending reason. Boot/use it. Changes that aren't platform-specific verify on whichever platform the user's feedback referenced.
 {{/if}}
 - When low confidence, read more (related files, git blame, past sessions). Punt only as rare exception.
 - Document failed attempts in the brief — they show what doesn't work.
@@ -271,6 +275,8 @@ Parallel reads across all data sources. Use multiple `Agent` subagent calls for 
 {{#each recipes}}
 {{> (lookup recipe_gather_steps this) }}
 {{/each}}
+
+**Transient errors are retryable — never skip a whole source on one.** A `500/502/503`/timeout from a data source (an MCP tool, an API) is transient: retry the SAME call up to 3× with a short `sleep` between, THEN fall back to an alternate query/source. Only after the retries+fallback fail do you record it under "Missing data" (so coverage is auditable) — a single transient error is NOT a reason to drop a source for the night. If a narrow query returns zero, widen once (e.g. a longer time window) before concluding "no data" — an over-narrow query reads as a false negative. When a message references an image/screenshot, that attachment often IS the spec: fetch and view the real file before reasoning about a visual/layout fix — never guess design from the filename.
 
 Persist gathered data to `$RUN_STATE` continuously.
 
