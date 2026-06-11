@@ -137,7 +137,8 @@ stop_heartbeat_writer() {
 **What:** if the agent's tool-use JSONL stops being written for N seconds, the LLM is hung — kill it.
 
 ```bash
-STALL_THRESHOLD=${STALL_THRESHOLD:-3600}  # 60min
+STALL_THRESHOLD=${STALL_THRESHOLD:-3600}  # 60min idle = hung
+FIRST_ACTIVITY_DEADLINE=${FIRST_ACTIVITY_DEADLINE:-600}  # 10min with ZERO tool_use = SDK initial-hang
 STALL_KILL_ENABLED=${STALL_KILL_ENABLED:-1}
 STALL_INTERVAL=60
 STALL_WATCHDOG_PID_FILE="$LOG_DIR/stall-watchdog.pid"
@@ -160,12 +161,40 @@ start_stall_watchdog() {
       sleep "$STALL_INTERVAL"
       kill -0 "$parent_pid" 2>/dev/null || exit 0
 
-      # Find most recent JSONL in CC's per-session storage
-      local jsonl
-      jsonl=$(find "$proj_dir" -name '*.jsonl' -mmin -720 -print0 2>/dev/null \
-        | xargs -0 ls -t 2>/dev/null \
-        | head -1)
+      # Find the LIVE claude's JSONL. Bind to the fd the running claude holds
+      # open (via lsof -p) FIRST — `ls -t` alone can pick a sibling/subagent
+      # JSONL in a shared proj_dir that still has tool_use and mask a hung main
+      # session (a stall fired ~8000s late that way). Fall back to ls -t only if
+      # lsof yields nothing.
+      local jsonl="" _wd_cpid
+      _wd_cpid=$(pgrep -f "claude --print.*$ROUTINE_DIR" | head -1)
+      if [[ -n "$_wd_cpid" ]]; then
+        jsonl=$(lsof -p "$_wd_cpid" -Fn 2>/dev/null \
+          | sed -n 's/^n\(.*[.]jsonl\)$/\1/p' \
+          | grep -F "$proj_dir" | head -1)
+      fi
+      if [[ -z "$jsonl" || ! -f "$jsonl" ]]; then
+        jsonl=$(find "$proj_dir" -name '*.jsonl' -mmin -720 -print0 2>/dev/null \
+          | xargs -0 ls -t 2>/dev/null | head -1)
+      fi
       [[ -z "$jsonl" ]] && continue
+
+      # FIRST-ACTIVITY watchdog: catch the SDK initial-hang (claude writes a
+      # thinking block then goes silent with ZERO tool_use). Reference the
+      # WATCHDOG START epoch, NOT the jsonl mtime — the startup thinking block
+      # keeps mtime fresh so an mtime check would never trip. Kills within 10min
+      # vs the 60min idle threshold; 5s TERM→KILL grace (vs 30s) for a fast retry.
+      local now; now=$(date -u +%s)
+      if (( now - watchdog_start_epoch > FIRST_ACTIVITY_DEADLINE )) \
+         && (( STALL_KILL_ENABLED )) \
+         && ! grep -q '"type":"tool_use"' "$jsonl" 2>/dev/null; then
+        if [[ -n "$_wd_cpid" ]] && kill -0 "$_wd_cpid" 2>/dev/null; then
+          echo "[$(date -u +%FT%TZ)] INITIAL-HANG: 0 tool_use after $((now-watchdog_start_epoch))s — TERMing claude $_wd_cpid" >&2
+          kill -TERM "$_wd_cpid" 2>/dev/null; sleep 5
+          kill -0 "$_wd_cpid" 2>/dev/null && kill -KILL "$_wd_cpid" 2>/dev/null
+          exit 0
+        fi
+      fi
 
       local mtime; mtime=$(stat -f %m "$jsonl" 2>/dev/null)
       [[ -z "$mtime" ]] && continue
@@ -175,7 +204,6 @@ start_stall_watchdog() {
         continue
       fi
 
-      local now; now=$(date -u +%s)
       local age=$(( now - mtime ))
 
       if (( age > STALL_THRESHOLD )); then
@@ -209,7 +237,8 @@ stop_stall_watchdog() {
 ```
 
 **Gotchas:**
-- `ls -t` returns prior-run JSONLs. Without the stale-prior-run guard the watchdog kills based on yesterday's mtime.
+- `ls -t` returns prior-run JSONLs (stale-prior-run guard) AND can pick a sibling/subagent JSONL that still has tool_use, masking a hung main session — bind to the live claude's open fd via `lsof -p` first; fall back to `ls -t` only if lsof is empty.
+- The first-activity branch references the watchdog START epoch, not jsonl mtime — the SDK writes a thinking block before hanging, so an mtime check never trips on an initial hang.
 - TERM then KILL — TERM-only doesn't always work if claude is in a tight loop.
 
 ---
@@ -291,12 +320,17 @@ cleanup() {
 trap 'cleanup $?' EXIT
 trap 'log_both "Received SIGINT";  exit 130' INT
 trap 'log_both "Received SIGTERM"; exit 143' TERM
-trap 'log_both "Received SIGHUP";  exit 129' HUP
+# SIGHUP: IGNORE. An unattended nightly agent must survive terminal/session
+# hangup mid-run — the wall (P19), stall watchdog (P4), caffeinate (P9) and the
+# launchd SIGTERM still bound a stuck run. A SIGHUP-fatal trap once killed a
+# HEALTHY rate-limit sleep mid-wait (resets 8pm) → no brief that night.
+trap '' HUP
 ```
 
 **Gotchas:**
 - `CLEANUP_RAN=1` guard prevents double-execution if EXIT fires after explicit `cleanup` call.
 - Release lock LAST — anything that errors after releasing means a second instance can race in.
+- Do NOT exit on SIGHUP — ignore it (`trap '' HUP`). Exiting on hangup kills unattended runs (and in-flight rate-limit sleeps); the other layers bound a genuinely stuck run.
 
 ---
 
@@ -777,6 +811,200 @@ echo "---"
 
 ---
 
+## P19. Absolute wall-clock suicide timer (hard-bound the WHOLE run)
+
+The per-attempt timeout (P7), stall watchdog (P4), and caffeinate (P9) each bound
+a *single* claude attempt or the sleep assertion — **nothing bounds the whole
+run**. A run that loops retries/auto-resume for hours holds the atomic lock (P1),
+so the next scheduled run sees a live holder and refuses → zero output that night.
+This timer hard-bounds total wall time even if every other layer fails.
+
+Four hard-won invariants are baked in (do not "simplify" them away):
+- **Poll loop, NOT a single `sleep $ABS_MAX`.** A single `sleep` does NOT tick
+  during macOS system sleep — a wedged run survived 27–51h with `sleep 32400`
+  still alive. Poll `date +%s` against an absolute deadline so it still fires
+  after a sleep/wake cycle.
+- **Snapshot descendants BEFORE killing.** claude sits in its OWN process group
+  (the perl-alarm setpgrp in P7), so SIGTERMing main first reparents+hides it and
+  a plain group-kill misses it. Collect the live descendant PIDs while the tree is
+  intact, then kill.
+- **Self-pid exclusion** via zsh `$sysparams[pid]` — the timer must never kill
+  itself before it finishes the sweep.
+- **Self-abort if the lock is no longer ours** — a late orphan timer is a
+  harmless no-op, never a kill of an unrelated recycled PID.
+
+```bash
+# Arm AFTER lock acquire (P1) and AFTER caffeinate (P9) so it can outlive both.
+# ABS_MAX must sit at/above the caffeinate -t ceiling (P9).
+ABS_MAX_S="${NIGHT_SHIFT_ABS_MAX_SEC:-32400}"   # 9h default; env-overridable for fire-drills
+_run_self=$$
+(
+  trap '' HUP INT TERM
+  zmodload zsh/system 2>/dev/null
+  _me="${sysparams[pid]:-0}"
+  _dl=$(($(date +%s) + ABS_MAX_S))
+  while (( $(date +%s) < _dl )); do sleep 60; done            # poll — survives macOS sleep
+  # self-abort: run already ended cleanly (lock released / pid recycled) → no-op
+  [[ -f "$LOCK_PID_FILE" && "$(cat "$LOCK_PID_FILE" 2>/dev/null)" == "$_run_self" ]] || exit 0
+  ps -p "$_run_self" -o command= 2>/dev/null | grep -q 'run[.]sh' || exit 0
+  printf '{"ts":"%s","level":"error","event":"abs_wall_suicide","abs_max_s":%s,"pid":%s}\n' \
+    "$(date -u +%FT%TZ)" "$ABS_MAX_S" "$_run_self" >> "$JSON_LOG" 2>/dev/null || true
+  typeset -a _vics
+  _collect() { local p=$1 c; for c in ${(f)"$(pgrep -P $p 2>/dev/null)"}; do [[ $c == $_me ]] && continue; _vics+=$c; _collect $c; done; }
+  _collect "$_run_self"
+  kill -TERM "$_run_self" 2>/dev/null            # graceful → EXIT trap → release_lock
+  sleep 30
+  for c in $_vics; do kill -KILL "$c" 2>/dev/null; done       # force-kill claude et al (pgroup-proof)
+  kill -KILL "$_run_self" 2>/dev/null
+  [[ -f "$LOCK_PID_FILE" && "$(cat "$LOCK_PID_FILE" 2>/dev/null)" == "$_run_self" ]] && rm -rf "$LOCK_DIR" 2>/dev/null
+) &
+SUICIDE_PID=$!
+```
+
+**Companion: age-based lock reclamation (extend P1's `acquire_lock`).** A liveness
+check alone is insufficient — a wedged run that holds the lock for hours blocks
+every future run. Inside the `kill -0 "$prior_pid"` branch, before the FATAL
+refusal, reclaim a holder older than the absolute ceiling:
+
+```bash
+prior_age_s="$(ps -o etimes= -p "$prior_pid" 2>/dev/null | tr -d ' ')"
+if [[ -n "$prior_age_s" ]] && (( prior_age_s > ${NIGHT_SHIFT_ABS_MAX_SEC:-32400} )); then
+  log_both "Lock holder $prior_pid is ${prior_age_s}s old (> ABS_MAX) — runaway; reclaiming"
+  for c in $(pgrep -P "$prior_pid" 2>/dev/null); do kill -KILL "$c" 2>/dev/null; done
+  kill -KILL "$prior_pid" 2>/dev/null
+  rm -rf "$LOCK_DIR"
+  if mkdir "$LOCK_DIR" 2>/dev/null; then echo $$ > "$LOCK_PID_FILE"; return 0; fi
+fi
+```
+
+The same timer applies to any long-running sibling (a meta-agent loop, a
+pre-night analyzer) with its own cap (e.g. 1h / 2h) and its own lock pid-file.
+
+---
+
+## P20. Layered MCP config (headless `claude --print` does NOT inherit `~/.claude.json`)
+
+The single highest-impact reliability bug class: a headless `claude --print`
+invocation does **not** inherit the `mcpServers` from `~/.claude.json` the way an
+interactive session does. Without an explicit `--mcp-config`, the agent silently
+loses every MCP tool (issue tracker, chat, error monitor, …) and ships degraded
+briefs — for nights on end, while `claude mcp list` still says "Connected". Pass
+`--mcp-config` (and `--settings`) on **every** claude invocation. Layer a
+committed config (no secrets) under a gitignored local overlay (OAuth secrets):
+
+```bash
+# Resolve once near the top of the script. Prefer the gitignored local overlay
+# (holds OAuth secrets) when present, else the committed public config.
+if [[ -f "$ROUTINE_DIR/mcp-config.local.json" ]]; then
+  MCP_CONFIG="$ROUTINE_DIR/mcp-config.local.json"
+else
+  MCP_CONFIG="$ROUTINE_DIR/mcp-config.json"
+fi
+
+# …and on EVERY `claude --print` arm (main run, resume, probe, meta):
+#   --settings   "$SETTINGS" \
+#   --mcp-config "$MCP_CONFIG" \
+```
+
+Gotcha: `mcp-config.local.json` is gitignored and holds secrets — never commit
+it. This pairs with P21 (a preflight probe that the surface actually loaded).
+
+---
+
+## P21. MCP tool-surface preflight probe (WARNING, not a hard fail)
+
+Fail-fast detection that the headless MCP surface (P20) actually loaded
+end-to-end, BEFORE the agent burns 20+ minutes on a degraded brief. Critically
+wired as a **warning**, not a hard fail — a degraded brief (local + error-monitor)
+beats no brief, the real run has hours plus the first-activity watchdog (P4), so a
+probe timeout never implies the run would fail. Reserve hard-fail only for a
+genuinely missing/corrupt config file.
+
+```bash
+preflight_mcp_probe() {   # returns 0 ok / 1 degraded — caller treats 1 as warn++
+  local probe_prompt='List the tool names available to you that start with "mcp__". On the final line print exactly: PROBE_RESULT count=<N>'
+  local cargs=("$HOME/.local/bin/claude" --print --model haiku --permission-mode bypassPermissions \
+               --settings "$SETTINGS" --mcp-config "$MCP_CONFIG" --output-format text)
+  # 180s cap: warm MCP startup is ~25s, but a COLD launchd start (OAuth refresh +
+  # cold prompt-cache) can blow past 120s. Use the P7 timeout resolution.
+  local probe_out
+  if command -v gtimeout >/dev/null 2>&1; then
+    probe_out=$(gtimeout --kill-after=15 180 "${cargs[@]}" <<<"$probe_prompt" 2>&1 || true)
+  elif command -v timeout >/dev/null 2>&1; then
+    probe_out=$(timeout --kill-after=15 180 "${cargs[@]}" <<<"$probe_prompt" 2>&1 || true)
+  else
+    probe_out=$("${cargs[@]}" <<<"$probe_prompt" 2>&1 || true)
+  fi
+  local result_line; result_line=$(echo "$probe_out" | grep -oE 'PROBE_RESULT count=[0-9]+' | tail -1)
+  [[ -z "$result_line" ]] && { echo "PROBE_NO_SENTINEL (cold start? degraded run continues)" >&2; return 1; }
+  local n="${result_line##*count=}"
+  (( n > 0 )) && { echo "PROBE_OK count=$n"; return 0; }
+  echo "PROBE_DEGRADED count=0" >&2; return 1
+}
+```
+
+---
+
+## P22. launchd-safe detached spawn (double-fork + setsid)
+
+When a launchd-managed run spawns a post-run sibling (a meta-agent, a notifier),
+plain `nohup … &` is NOT enough: `nohup` ignores SIGHUP but **not** the SIGTERM
+launchd sends to the whole job process group when the main job exits — every
+spawned sibling dies after writing a few bytes. Double-fork + `POSIX::setsid()`
+moves the grandchild to a new session adopted by PID 1, off the job's group:
+
+```bash
+SPAWN_LOG="$LOG_DIR/spawn-$(date -u +%FT%H%M).log" /usr/bin/perl -e '
+  use POSIX ();
+  exit 0 if fork;                 # parent exits
+  POSIX::setsid();                # new session — leave the launchd job process group
+  exit 0 if fork;                 # double-fork — grandchild orphaned to PID 1
+  open(STDIN, "<", "/dev/null");
+  open(STDOUT, ">", $ENV{SPAWN_LOG}) or die "open stdout: $!";
+  open(STDERR, ">&", \*STDOUT)       or die "dup stderr: $!";
+  exec @ARGV or die "exec: $!";
+' "$ROUTINE_DIR/meta-agent.sh" </dev/null &
+disown 2>/dev/null || true
+```
+
+(macOS ships `/usr/bin/perl`; the agent is macOS-only.)
+
+---
+
+## P23. API-readiness gate (before each claude attempt)
+
+The post-sleep-wake failure mode: the Mac wakes from a multi-hour sleep and the
+scheduled run launches claude ~1min later into a not-yet-ready network → the SDK
+hangs on its first API call ("socket closed unexpectedly"). A ping is not enough —
+DNS can resolve before TLS/HTTPS works. Make a real HTTPS request; any http_code
+means the socket is live. Pair with a night-cutoff so retry work never drifts
+into the workday (attempt 1 always runs — a late single attempt beats nothing;
+only *retries* are time-gated).
+
+```bash
+api_health_gate() {   # best-effort: returns 1 after the cap but launches anyway (P4 catches a hang)
+  local tries="${1:-12}" i code
+  for (( i=1; i<=tries; i++ )); do
+    code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' https://api.anthropic.com/v1/messages 2>/dev/null)
+    if [[ "$code" =~ ^[1-9][0-9][0-9]$ ]]; then
+      (( i > 1 )) && log_both "API readiness: reachable after $i tries (http $code)"
+      return 0
+    fi
+    log_both "API readiness: not ready (curl code='${code:-none}') — retry $i/$tries in 15s"
+    sleep 15
+  done
+  log_both "API readiness: still not ready after ~3min — launching anyway (watchdog catches a hang)"
+  return 1
+}
+
+# Night cutoff, inside the retry branch (ATTEMPT > 1): never START a retry past
+# the cutoff hour (work would land in the user's morning). 24h clock, local tz.
+#   _h=$(date +%H); _h=${_h#0}; _h=${_h:-0}
+#   if (( _h >= ${NIGHT_SHIFT_CUTOFF_HOUR:-3} && _h < 12 )); then break; fi
+```
+
+---
+
 ## Inline bash gotchas (preserve these comments verbatim in any generated bash)
 
 These are paid-for-in-production warnings. When you generate a bash file, copy the relevant comment block.
@@ -855,10 +1083,15 @@ Templates reference patterns by ID via `{{ pattern.P1 }}`, etc. The wizard rende
 
 | Template file | Patterns used |
 |---|---|
-| `run.sh.template` | P1, P2, P3, P4, P5, P6, P7, P8, P9, P11, P12, P13, P14, P15, P16, P17 |
+| `run.sh.template` | P1, P2, P3, P4, P5, P6, P7, P8, P9, P11, P12, P13, P14, P15, P16, P17, P19, P20, P21, P22, P23 |
 | `swiftbar.sh.template` | P2, P18 |
-| `meta-agent.sh.template` | P1, P2, P3, P4, P5, P6, P7 |
+| `meta-agent.sh.template` | P1, P2, P3, P4, P5, P6, P7, P19, P22 |
 | `protect-user-state.sh.template` | P10, P17 |
 | `triage.sh.template` | P2, P6, G3, G4 |
+
+P19–P23 are the June reliability hardening: the absolute wall-clock suicide timer
+(P19), layered MCP config (P20) + its preflight probe (P21), launchd-safe detached
+spawn (P22), and the API-readiness gate (P23). All are gated behind resilience
+flags so a minimal install renders none of them.
 
 Plus every generated bash file gets the relevant G-block comments inline as warnings.

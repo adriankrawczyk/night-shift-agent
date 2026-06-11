@@ -23,8 +23,11 @@ You classify, the wrapper enforces.
 
 - **TACTICAL** → wrapper auto-merges your PR (no review needed).
 - **ARCHITECTURAL** → wrapper opens a DRAFT PR. User reviews and decides.
+- **RUN-HEALTH** → a fix from `RUN-HEALTH.md` that restores a documented defense layer. The wrapper re-runs `verify-invariants.sh` itself and auto-merges ONLY if it passes (else abandons the change — no merge, no nag). Use this class ONLY for catalog-backed self-repair; a novel failure with no catalog entry is ARCHITECTURAL (open a catalog-growth PR per RUN-HEALTH.md).
 - **MIXED** → treated as ARCHITECTURAL.
 - **NONE** → no changes proposed this run.
+
+Before normal analysis, run the RUN-HEALTH check FIRST: `./verify-invariants.sh` — any FAIL means a defense layer was reverted/refactored away and WILL break a future run; restoring it is a `run-health` change and outranks prompt-size compaction or normal analysis this run. Also verify CATALOG CONSISTENCY (cheap): every `RHnn` cited in `verify-invariants.sh` (`grep -oE 'RH[0-9]+' verify-invariants.sh | sort -u`) must have a `### RHnn` section in `RUN-HEALTH.md` — a drift is a tactical/run-health fix (add the missing catalog entry).
 
 ### TACTICAL (safe to auto-merge)
 
@@ -92,6 +95,16 @@ Wrapper enforces, but you should also self-check:
 - Slack feedback channel(s): repeated bug categories the night-shift's bug triager might've missed
 {{/if}}
 - User's own self-DM if connected: "stop touching X" candidates for do_not_touch
+
+## SYSTEMIC ANALYSIS — run BEFORE the per-run rubric (the rubric is myopic by design)
+
+The DIAGNOSIS RUBRIC below grades ONE night. These three checks look ACROSS runs and at the system's own logic — they catch failures a single-run view is blind to (a degradation that survives N nights looks "handled" each night; a logic gap in `prompt.md` looks fine line-by-line). Highest-leverage findings come from here.
+
+1. **MULTI-RUN TREND (read the last 5–7 runs, not just this one).** If the SAME degradation/failure recurs in >= 2 consecutive runs, it is NOT a one-off — it's a systemic failure every prior run silently tolerated by shipping a degraded brief. **Escalate it as this run's PRIMARY finding (P0).** A degradation surviving >= 3 runs means each prior "DEGRADED but shipped" verdict was the wrong call — the trend is the bug, not the single night. Root-cause it (per #2); contract-touching → architectural, else tactical.
+
+2. **EMPIRICAL ROOT-CAUSE — reproduce, don't guess.** You have Bash. When you hypothesize WHY something degraded, VERIFY with a command before proposing a fix. Suspect a tool isn't available headless? Run `claude --print --add-dir "{{ install_dir }}" <<<'list your available tools'` and read the output. Suspect a wall-cap doesn't fire? Run the timeout snippet with a 2s cap vs `sleep 10`, check the rc. A fix shipped on an unverified hypothesis is how a system passes many nights trusting a status string instead of probing. Reproduce first; the repro command goes in the PR body as evidence.
+
+3. **PROMPT.MD LOGIC AUDIT (every ~7th run, or whenever a QA-gap points at the flow).** Read `prompt.md` as a SYSTEM, not line-by-line, and hunt structural gaps: (a) **catch-22** — a check that only fires as a side-effect of another action that itself needs the check; (b) **recipe asymmetry** — two recipes given different rigor for the same risk class; (c) **unreachable guard** — a FORBIDDEN-skip rule with no positive path that exercises it. All architectural. Only end-to-end flow reading surfaces these.
 
 ## DIAGNOSIS RUBRIC
 

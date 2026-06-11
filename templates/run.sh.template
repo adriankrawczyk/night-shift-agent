@@ -135,6 +135,18 @@ PROMPT="$ROUTINE_DIR/prompt.md"
 SETTINGS="$ROUTINE_DIR/settings.json"
 # NB: LOCK_DIR + LOCK_PID_FILE are defined inside pattern.P1 below — don't
 # duplicate the assignment here (the awk extractor pulls P1's full body).
+# === Pattern P20: layered MCP config (headless claude does NOT inherit ~/.claude.json) ===
+{{#if uses_mcp_config}}
+# Prefer the gitignored local overlay (OAuth secrets) when present; else the committed config.
+if [[ -f "$ROUTINE_DIR/mcp-config.local.json" ]]; then
+  MCP_CONFIG="$ROUTINE_DIR/mcp-config.local.json"
+else
+  MCP_CONFIG="$ROUTINE_DIR/mcp-config.json"
+fi
+MCP_CONFIG_ARG=(--mcp-config "$MCP_CONFIG")
+{{else}}
+MCP_CONFIG_ARG=()
+{{/if}}
 
 # === Pattern P2: PATH setup BEFORE any tool lookup ===
 {{ pattern.P2 }}
@@ -188,6 +200,42 @@ fi
 # === Pattern P9: caffeinate (keep Mac awake) ===
 {{#if resilience_caffeinate}}
 {{ pattern.P9 }}
+{{/if}}
+
+# === Pattern P19: absolute wall-clock suicide timer (hard-bound the WHOLE run) ===
+{{#if resilience_abs_wall_timer}}
+# Arm after lock + caffeinate so it outlives both. ABS_MAX must sit >= the
+# caffeinate -t ceiling. Poll loop (not a single sleep) so it ticks across
+# macOS system sleep; snapshot descendants BEFORE killing (claude is in its own
+# pgroup via the perl-alarm setpgrp); self-pid excluded; self-abort if the lock
+# is no longer ours. See BASH_PATTERNS.md P19 for the full rationale.
+ABS_MAX_S="${NIGHT_SHIFT_ABS_MAX_SEC:-{{ hard_wall_seconds }}}"
+(( ABS_MAX_S < ${NIGHT_SHIFT_HARD_WALL_SEC:-{{ hard_wall_seconds }}} + 1800 )) && ABS_MAX_S=$(( ${NIGHT_SHIFT_HARD_WALL_SEC:-{{ hard_wall_seconds }}} * 4 ))
+_run_self=$$
+(
+  trap '' HUP INT TERM
+  zmodload zsh/system 2>/dev/null
+  _me="${sysparams[pid]:-0}"
+  _dl=$(($(date +%s) + ABS_MAX_S))
+  while (( $(date +%s) < _dl )); do sleep 60; done
+  [[ -f "$LOCK_PID_FILE" && "$(cat "$LOCK_PID_FILE" 2>/dev/null)" == "$_run_self" ]] || exit 0
+  ps -p "$_run_self" -o command= 2>/dev/null | grep -q 'run[.]sh' || exit 0
+  printf '{"ts":"%s","level":"error","event":"abs_wall_suicide","abs_max_s":%s,"pid":%s}\n' \
+    "$(date -u +%FT%TZ)" "$ABS_MAX_S" "$_run_self" >> "$JSON_LOG" 2>/dev/null || true
+  typeset -a _vics
+  # zsh-specific (script runs under zsh): ${(f)…} split, array += , bare array loop.
+  # shellcheck disable=SC2296,SC2053,SC2179,SC2128,SC2034
+  _collect() { local p=$1 c; for c in ${(f)"$(pgrep -P $p 2>/dev/null)"}; do [[ $c == $_me ]] && continue; _vics+=$c; _collect $c; done; }
+  _collect "$_run_self"
+  kill -TERM "$_run_self" 2>/dev/null
+  sleep 30
+  # shellcheck disable=SC2128
+  for c in $_vics; do kill -KILL "$c" 2>/dev/null; done
+  kill -KILL "$_run_self" 2>/dev/null
+  [[ -f "$LOCK_PID_FILE" && "$(cat "$LOCK_PID_FILE" 2>/dev/null)" == "$_run_self" ]] && rm -rf "$LOCK_DIR" 2>/dev/null
+) &
+SUICIDE_PID=$!
+emit_json info abs_wall_timer_armed abs_max_s="$ABS_MAX_S" suicide_pid="$SUICIDE_PID"
 {{/if}}
 
 # === Run preflight ===
@@ -536,13 +584,45 @@ delivery_complete() {
   return 0
 }
 
+{{#if resilience_api_gate}}
+# === Pattern P23: API-readiness gate ===
+api_health_gate() {
+  local tries="${1:-12}" i code
+  for (( i=1; i<=tries; i++ )); do
+    code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' https://api.anthropic.com/v1/messages 2>/dev/null)
+    if [[ "$code" =~ ^[1-9][0-9][0-9]$ ]]; then
+      (( i > 1 )) && log_both "API readiness: reachable after $i tries (http $code)"
+      emit_json info api_health_gate_ok http="$code" tries="$i"; return 0
+    fi
+    log_both "API readiness: not ready (curl code='${code:-none}') — retry $i/$tries in 15s"
+    sleep 15
+  done
+  log_both "API readiness: still not ready after ~3min — launching anyway (watchdog catches a hang)"
+  emit_json warn api_health_gate_timeout tries="$tries"; return 1
+}
+{{/if}}
+
 while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
   if (( ATTEMPT > 1 )); then
+    {{#if resilience_api_gate}}
+    # Night cutoff: never START a retry past the cutoff hour — work would land in
+    # the user's morning. Attempt 1 always runs (a late single attempt beats
+    # nothing); only retries are time-gated.
+    _h=$(date +%H); _h=${_h#0}; _h=${_h:-0}
+    if (( _h >= ${NIGHT_SHIFT_CUTOFF_HOUR:-3} && _h < 12 )); then
+      log_both "Night cutoff: ${_h}:00 >= ${NIGHT_SHIFT_CUTOFF_HOUR:-3}:00 — not starting attempt $ATTEMPT"
+      emit_json warn claude_retry_night_cutoff attempt="$ATTEMPT" hour="$_h"
+      break
+    fi
+    {{/if}}
     log_both "=== ATTEMPT $ATTEMPT of $MAX_CLAUDE_ATTEMPTS — RESUMING ==="
     [[ ! -f "$STALL_WATCHDOG_PID_FILE" ]] && start_stall_watchdog
     [[ ! -f "$HEARTBEAT_PID_FILE" ]] && start_heartbeat_writer
   fi
 
+  {{#if resilience_api_gate}}
+  api_health_gate
+  {{/if}}
   log_both "Invoking claude (attempt $ATTEMPT)"
   emit_json info claude_attempt n="$ATTEMPT"
 
@@ -553,6 +633,8 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
         "$HOME/.local/bin/claude" \
           --print \
           --permission-mode bypassPermissions \
+          --settings "$SETTINGS" \
+          "${MCP_CONFIG_ARG[@]}" \
           --add-dir "$RUNTIME_DIR" \
           --add-dir "/tmp/night-shift-agent" \
           < "$PROMPT" 2>&1 | tee -a "$LOG"
@@ -586,6 +668,8 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
         "$HOME/.local/bin/claude" \
           --print \
           --permission-mode bypassPermissions \
+          --settings "$SETTINGS" \
+          "${MCP_CONFIG_ARG[@]}" \
           --add-dir "$RUNTIME_DIR" \
           --add-dir "/tmp/night-shift-agent" \
           < "$PROMPT" 2>&1 | tee -a "$LOG"
@@ -595,6 +679,8 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
       "$HOME/.local/bin/claude" \
         --print \
         --permission-mode bypassPermissions \
+        --settings "$SETTINGS" \
+        "${MCP_CONFIG_ARG[@]}" \
         --add-dir "$RUNTIME_DIR" \
         --add-dir "/tmp/night-shift-agent" \
         < "$PROMPT" 2>&1 | tee -a "$LOG"
@@ -726,8 +812,19 @@ ub_restore_multi "{{ @index }}" "$USER_REPO_{{ @index }}"
 if [[ -x "$ROUTINE_DIR/meta-agent.sh" ]] && [[ $DRY_RUN -eq 0 ]]; then
   log_both "Spawning meta-agent in background (post-run self-improvement)"
   emit_json info meta_agent_spawning
-  nohup "$ROUTINE_DIR/meta-agent.sh" \
-    > "$LOG_DIR/meta-spawn-$(date -u +%FT%H%M).log" 2>&1 < /dev/null &
+  # Pattern P22: double-fork + setsid so launchd can't reap the meta-agent when
+  # this job exits. nohup ignores SIGHUP but NOT the SIGTERM launchd sends to the
+  # whole job process group; setsid moves the grandchild to a new session (PID 1).
+  SPAWN_LOG="$LOG_DIR/meta-spawn-$(date -u +%FT%H%M).log" /usr/bin/perl -e '
+    use POSIX ();
+    exit 0 if fork;
+    POSIX::setsid();
+    exit 0 if fork;
+    open(STDIN,  "<", "/dev/null");
+    open(STDOUT, ">", $ENV{SPAWN_LOG}) or die "open stdout: $!";
+    open(STDERR, ">&", \*STDOUT)       or die "dup stderr: $!";
+    exec @ARGV or die "exec: $!";
+  ' "$ROUTINE_DIR/meta-agent.sh" </dev/null &
   disown 2>/dev/null || true
 fi
 {{/if}}

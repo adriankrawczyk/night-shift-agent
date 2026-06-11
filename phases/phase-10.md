@@ -40,6 +40,8 @@ Ask: change anything?
 
 For each template in `templates/`, read it, fill placeholders from `$ANSWERS_JSON` + `$SCAN_JSON`, write to install location.
 
+> **Diagnostic log:** per template, `ilog info render "<template> ok"` — or, if you hit any unresolved `{{ var }}` / `<<MISSING>>` / `<<partial-missing>>`, `ilog error render "<template>: <the marker(s)>"` and how you resolved it. Then `ilog info file_written "<path>"` (+ chmod / launchctl outcome) for each generated file. This is the highest-value capture point — a render gap here is exactly what a remote user needs to hand back.
+
 Placeholders use `{{ key }}` syntax. Conditionals use `{{#if key}}...{{/if}}`. Loops use `{{#each list}}...{{/each}}`.
 
 See `templates/README.md` for the full template grammar.
@@ -70,6 +72,7 @@ Skipping this step leaves `{{ recipe_gather_steps.pr_responder }}` etc. unresolv
 | File | Template | Conditions |
 |---|---|---|
 | `<install>/prompt.md` | `prompt.md.template` | always |
+| `<install>/AGENTS.md` | `AGENTS.md.template` | always (navigation map for agents working in the install dir) |
 | `<install>/run.sh` | `run.sh.template` | always |
 | `<install>/settings.json` | `settings.json.template` | always |
 | `<install>/recipes/<id>.yaml` | (copied verbatim from `$INSTALLER_DIR/recipes/<id>.yaml`) | per picked recipe |
@@ -92,6 +95,8 @@ Skipping this step leaves `{{ recipe_gather_steps.pr_responder }}` etc. unresolv
 | `<install>/meta-agent.sh` | `meta-agent.sh.template` | if meta_agent_enabled |
 | `<install>/meta-prompt.md` | `meta-prompt.md.template` | if meta_agent_enabled |
 | `<install>/META-DECISIONS.md` | `META-DECISIONS.md.template` | if meta_agent_enabled |
+| `<install>/verify-invariants.sh` | `verify-invariants.sh.template` | if meta_agent_enabled (RUN-HEALTH defense-layer gate) |
+| `<install>/RUN-HEALTH.md` | `RUN-HEALTH.md.template` | if meta_agent_enabled (RUN-HEALTH failure→fix catalog) |
 | `~/Library/LaunchAgents/com.<user_short>.night-shift-routine.plist` | `launchd-routine.plist.template` | if execution_mode in [local, both] AND macOS |
 | `<install>/dashboard/swiftbar.sh` | `swiftbar.sh.template` | if dashboard.enabled AND macOS |
 | `<install>/dashboard/notify-watcher.sh` | `notify-watcher.sh.template` | if dashboard.enabled AND macOS |
