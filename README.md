@@ -14,10 +14,15 @@ unfinished work, generates patches, and writes a morning brief.
 Not a SaaS. No server, no account, no cloud metering. Lives in `~/night-shift-agent/`,
 wired to your local Claude Code, run by launchd.
 
-The hard part of an overnight agent isn't the LLM — it's the infrastructure:
-lockfiles, stall watchdogs, caffeinate, credential scrubbing, snapshot/restore,
-rate-limit retries, a sandbox that can't `rm -rf $HOME`. This bakes in
-battle-tested patterns from a real working night-shift system.
+The hard part of an overnight agent isn't the AI — it's everything around it.
+It keeps your Mac from falling asleep mid-task. It makes a backup before
+touching anything, so a bad run rolls back instead of corrupting your files.
+It never runs two copies on top of each other. If it gets stuck, it notices
+and recovers instead of hanging until morning. When the wifi drops or the API
+says "slow down," it waits and retries instead of giving up. It keeps your
+passwords and API keys out of the logs. And it's boxed in so it can't wipe
+your files even if something goes wrong. This bakes in patterns proven on a
+real, running night-shift system.
 
 ## Quick start
 
