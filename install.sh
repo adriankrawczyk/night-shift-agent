@@ -159,9 +159,21 @@ done
 ilog info preflight_ok "all required tools present"
 
 # === Clone or update ===
+# Dev-only paths: they live in the repo (CI + contributors need them) but the
+# installing user never reads them. We sparse-checkout everything EXCEPT these,
+# so a fresh install fetches only the files the wizard actually uses.
+SPARSE_EXCLUDES=(tests .github validate.sh DESIGN.md STAGED-BACKPORT.md)
+apply_sparse_excludes() {
+  # Non-cone sparse patterns: include all, then re-exclude the dev-only paths.
+  local pats=('/*') p
+  for p in "${SPARSE_EXCLUDES[@]}"; do pats+=("!/$p"); done
+  git -C "$INSTALLER_DIR" sparse-checkout set --no-cone "${pats[@]}"
+}
+
 if [ -d "$INSTALLER_DIR/.git" ]; then
   c_dim "Installer at $INSTALLER_DIR — pulling latest"
   if pull_out="$(git -C "$INSTALLER_DIR" pull --ff-only 2>&1)"; then
+    apply_sparse_excludes 2>/dev/null || true   # converge older full installs to slim
     ilog info installer_pull_ok "$pull_out"
   else
     ilog error installer_pull_failed "$pull_out"
@@ -180,13 +192,24 @@ elif [ -d "$INSTALLER_DIR" ]; then
     exit 1
   fi
 else
-  c_dim "Cloning $REPO_URL → $INSTALLER_DIR"
-  if clone_out="$(git clone --depth 1 "$REPO_URL" "$INSTALLER_DIR" 2>&1)"; then
-    ilog info installer_cloned "$REPO_URL -> $INSTALLER_DIR"
+  c_dim "Cloning $REPO_URL → $INSTALLER_DIR (sparse — dev tooling stays in the repo, not fetched)"
+  # Blobless + sparse: dev-only blobs are never downloaded.
+  if clone_out="$(git clone --depth 1 --filter=blob:none --sparse "$REPO_URL" "$INSTALLER_DIR" 2>&1)" \
+     && sparse_out="$(apply_sparse_excludes 2>&1)"; then
+    ilog info installer_cloned "$REPO_URL -> $INSTALLER_DIR (sparse: excluded ${SPARSE_EXCLUDES[*]})"
   else
-    ilog error installer_clone_failed "$clone_out"
-    c_red "git clone failed: $clone_out"
-    exit 1
+    # Fallback for old git / servers without partial-clone: full clone, then
+    # strip the dev-only paths locally so the user still ends up with a slim tree.
+    ilog warn installer_sparse_failed "${clone_out:-}${sparse_out:-} — falling back to full clone + prune"
+    rm -rf "$INSTALLER_DIR"
+    if clone_out="$(git clone --depth 1 "$REPO_URL" "$INSTALLER_DIR" 2>&1)"; then
+      ( cd "$INSTALLER_DIR" && rm -rf "${SPARSE_EXCLUDES[@]}" )
+      ilog info installer_cloned "$REPO_URL -> $INSTALLER_DIR (full+pruned: ${SPARSE_EXCLUDES[*]})"
+    else
+      ilog error installer_clone_failed "$clone_out"
+      c_red "git clone failed: $clone_out"
+      exit 1
+    fi
   fi
 fi
 
