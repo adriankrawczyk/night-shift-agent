@@ -159,7 +159,7 @@ ilog info phase_start "$N"
 
 Inside each phase file you'll find the questions to ask + scan-driven options + post-question actions. Cross-reference each question's `tier_filter` in `wizard-questions.yaml` — skip if user's tier isn't in the filter list. Also check `depends_on` — skip if the dependency isn't satisfied.
 
-After every question: `jq` update `$ANSWERS_JSON` AND `ilog info question "<qid>=<answer>"` (secrets → `secret_captured <name>`, never the value). After every phase completes: `jq` update `$STATE_FILE.last_phase = N`. Append diagnostic events throughout per the INSTALL DIAGNOSTIC LOG section.
+After every question — asked OR skipped/defaulted: `jq` update `$ANSWERS_JSON` AND `ilog info question "<qid>=<answer>"` (append ` (default)` when the value wasn't typed by the user; secrets → `secret_captured <name>`, never the value). After every phase completes: `jq` update `$STATE_FILE.last_phase = N`. Append diagnostic events throughout per the INSTALL DIAGNOSTIC LOG section.
 
 **Why per-phase files**: phase content adds up to ~700 lines if loaded all at once. Loading on demand means a Minimal-tier user (~10 questions) only pulls in the phases they need. Reduces context drift and makes each phase independently editable.
 
@@ -460,7 +460,7 @@ ilog info wizard_start "installer=$INSTALLER_DIR tier=<once known>"
 **Append an event (terse, one line) at EVERY one of these — especially the problems:**
 - `phase_start <N>` / `phase_done <N>` — every phase boundary.
 - `scan_result` — what Phase 0 found: project count, stacks, detected MCPs, `gh auth` state, GitHub remote yes/no, anything that failed to scan (with the error).
-- `question` — each Q id + the chosen answer (NEVER log secret values — log `secret_captured <name>` instead of the value).
+- `question` — **every** question's id + answer, with NO exceptions: questions you actually asked, multi-selects (log the full chosen list), free-text answers (the goal, custom paths — log them verbatim), AND questions you skipped or auto-accepted on a default (log `question <qid>=<value> (default)` so the log shows the COMPLETE answer set, not just what the user typed). The only thing never logged is a secret value → log `secret_captured <name>` instead.
 - `mcp_install` — per service: the exact install command, and the result (`ok` / the verbatim error + the manual URL you gave). MCP installs are the #1 thing that breaks a build.
 - `derived_vars` — the derived-var assembly result, and ANY var that was missing/empty when you expected a value.
 - `render <template>` — per template at Phase 10: `ok`, or the unresolved `{{ ... }}` / `<<MISSING>>` markers you hit and how you resolved them.
@@ -475,6 +475,12 @@ ilog info wizard_start "installer=$INSTALLER_DIR tier=<once known>"
   echo "files written: <count>   schedule: <human readable or none>"
   echo "PROBLEMS ENCOUNTERED:"
   echo "  - <each warn/error/workaround, one line; or 'none'>"
+  echo "----- full answers (answers.json, secrets already stored separately) -----"
+  # Dump the complete answer set INTO the log so the single hand-back file is
+  # self-contained. jq redacts any secret-shaped key as a belt-and-suspenders
+  # guard (secrets live in secrets.json, never in $ANSWERS_JSON — but scrub anyway).
+  jq '(.. | objects | with_entries(if (.key|test("token|secret|password|key|api_?key";"i")) then .value="<redacted>" else . end))' "$ANSWERS_JSON" 2>/dev/null \
+    || cat "$ANSWERS_JSON" 2>/dev/null || echo "  (answers.json unreadable)"
   echo "===== end ====="
 } >> "$INSTALL_LOG"
 ```
