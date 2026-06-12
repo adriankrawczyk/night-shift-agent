@@ -422,6 +422,17 @@ setup_worktree "{{ @index }}" "$USER_REPO_{{ @index }}"
 WORKTREE="${WORKTREE_0}"
 {{/if}}
 
+# === Pre-authorize every dir the agent actually works in ===
+# bypassPermissions already skips prompts, but --add-dir makes the worktrees and
+# user repos first-class workspace dirs (not just RUNTIME_DIR) — so file/Bash
+# tools never treat them as "outside the workspace", and it stays prompt-free
+# even if permission-mode is ever tightened. :- guards an unset worktree.
+ADD_DIR_ARGS=(--add-dir "$RUNTIME_DIR" --add-dir "/tmp/night-shift-agent")
+{{#each projects}}
+[[ -n "${WORKTREE_{{ @index }}:-}" ]] && ADD_DIR_ARGS+=(--add-dir "${WORKTREE_{{ @index }}}")
+[[ -n "${USER_REPO_{{ @index }}:-}" ]] && ADD_DIR_ARGS+=(--add-dir "${USER_REPO_{{ @index }}}")
+{{/each}}
+
 # === STACK PREFLIGHT — install deps in worktree so verify commands work ===
 # Without this, the agent burns 1-2 min per attempt re-running pip install /
 # npm install / cargo fetch before pytest/eslint/clippy can even start. Detect
@@ -635,8 +646,7 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
           --permission-mode bypassPermissions \
           --settings "$SETTINGS" \
           "${MCP_CONFIG_ARG[@]}" \
-          --add-dir "$RUNTIME_DIR" \
-          --add-dir "/tmp/night-shift-agent" \
+          "${ADD_DIR_ARGS[@]}" \
           < "$PROMPT" 2>&1 | tee -a "$LOG"
       ;;
     perl-alarm)
@@ -670,8 +680,7 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
           --permission-mode bypassPermissions \
           --settings "$SETTINGS" \
           "${MCP_CONFIG_ARG[@]}" \
-          --add-dir "$RUNTIME_DIR" \
-          --add-dir "/tmp/night-shift-agent" \
+          "${ADD_DIR_ARGS[@]}" \
           < "$PROMPT" 2>&1 | tee -a "$LOG"
       ;;
     *)
@@ -681,8 +690,7 @@ while (( ATTEMPT <= MAX_CLAUDE_ATTEMPTS )); do
         --permission-mode bypassPermissions \
         --settings "$SETTINGS" \
         "${MCP_CONFIG_ARG[@]}" \
-        --add-dir "$RUNTIME_DIR" \
-        --add-dir "/tmp/night-shift-agent" \
+        "${ADD_DIR_ARGS[@]}" \
         < "$PROMPT" 2>&1 | tee -a "$LOG"
       ;;
   esac
