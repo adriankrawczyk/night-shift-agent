@@ -8,21 +8,12 @@
 
 You point this installer at your project. It interviews you (~20–30 min) about
 what to do, which tools you use, and how much autonomy you trust it with — then
-builds, **locally on your disk**, an agent that fires every night, picks up your
-unfinished work, generates patches, and writes a morning brief.
+builds, **locally on your disk**, an agent that fires every night, picks up your work, generates patches, and writes a morning brief.
 
 Not a SaaS. No server, no account, no cloud metering. Lives in `~/night-shift-agent/`,
 wired to your local Claude Code, run by launchd.
 
-The hard part of an overnight agent isn't the AI — it's everything around it.
-It keeps your Mac from falling asleep mid-task. It makes a backup before
-touching anything, so a bad run rolls back instead of corrupting your files.
-It never runs two copies on top of each other. If it gets stuck, it notices
-and recovers instead of hanging until morning. When the wifi drops or the API
-says "slow down," it waits and retries instead of giving up. It keeps your
-passwords and API keys out of the logs. And it works inside its own
-sandbox, so it can't wipe your files even if something goes wrong. This bakes in patterns proven on a
-real, running night-shift system.
+The hard part of an overnight agent isn't the AI — it's everything around it. It keeps your Mac from falling asleep mid-task. It makes a backup before touching anything, so a bad run rolls back instead of corrupting your files. It never runs two copies on top of each other. If it gets stuck, it notices and recovers instead of hanging until morning. When the wifi drops or the API says "slow down," it waits and retries instead of giving up. It keeps your passwords and API keys out of the logs. And it works in it's sandbox in so it can't wipe your files even if something goes wrong.
 
 ## Quick start
 
@@ -30,7 +21,7 @@ real, running night-shift system.
 curl -fsSL https://raw.githubusercontent.com/adriankrawczyk/night-shift-agent/main/install.sh | bash
 ```
 
-Clones to `~/.night-shift-installer/`, runs preflight (`git`/`jq`/`claude`), launches
+Clones to `~/.night-shift-installer/` and launches
 the wizard. Pick a tier (Minimal / Full), answer, done. Kill & re-run anytime — it resumes.
 
 ## What the wizard asks
@@ -50,11 +41,6 @@ the wizard. Pick a tier (Minimal / Full), answer, done. Kill & re-run anytime �
 | 10 · Commit | Preview, test fire, push |
 
 **Minimal ≈ 15 questions · Full ≈ 34** (defaults + conditional gates → you answer ~20–25).
-
-## Cost
-
-Runs against your **Claude Code** install. On a Pro/Max plan: ~$0 marginal.
-On raw API: roughly **$3–15/night** at Full tier (Q7.3 hard-wall is the main knob).
 
 ## License
 
