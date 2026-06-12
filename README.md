@@ -20,8 +20,8 @@ touching anything, so a bad run rolls back instead of corrupting your files.
 It never runs two copies on top of each other. If it gets stuck, it notices
 and recovers instead of hanging until morning. When the wifi drops or the API
 says "slow down," it waits and retries instead of giving up. It keeps your
-passwords and API keys out of the logs. And it's boxed in so it can't wipe
-your files even if something goes wrong. This bakes in patterns proven on a
+passwords and API keys out of the logs. And it works inside its own
+sandbox, so it can't wipe your files even if something goes wrong. This bakes in patterns proven on a
 real, running night-shift system.
 
 ## Quick start
