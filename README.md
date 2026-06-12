@@ -40,7 +40,7 @@ the wizard. Pick a tier (Minimal / Full), answer, done. Kill & re-run anytime �
 | 9 · Dashboard | *(opt)* menu-bar status widget |
 | 10 · Commit | Preview, test fire, push |
 
-**Minimal ≈ 15 questions · Full ≈ 34** (defaults + conditional gates → you answer ~20–25).
+**Minimal ≈ 15 questions · Full ≈ 34**
 
 ## License
 
