@@ -10,6 +10,7 @@ You point this installer at your project. It interviews you (~20–30 min) about
 what to do, which tools you use, and how much autonomy you trust it with — then
 builds, **locally on your disk**, an agent that fires every night, picks up your work, generates patches, and writes a morning brief.
 
+It is basically a huge prompt.
 Not a SaaS. No server, no account, no cloud metering. Lives in `~/night-shift-agent/`,
 wired to your local Claude Code, run by launchd.
 
