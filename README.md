@@ -10,9 +10,8 @@ You point this installer at your project. It interviews you (~20–30 min) about
 what to do, which tools you use, and how much autonomy you trust it with — then
 builds, **locally on your disk**, an agent that fires every night, picks up your work, generates patches, and writes a morning brief.
 
-It is basically a huge prompt.
-Not a SaaS. No server, no account, no cloud metering. Lives in `~/night-shift-agent/`,
-wired to your local Claude Code, run by launchd.
+It is basically a huge prompt that is read by your Claude Code that handles all configuration for you.
+Lives in `~/night-shift-agent/`.
 
 The hard part of an overnight agent isn't the AI — it's everything around it. It keeps your Mac from falling asleep mid-task. It makes a backup before touching anything, so a bad run rolls back instead of corrupting your files. It never runs two copies on top of each other. If it gets stuck, it notices and recovers instead of hanging until morning. When the wifi drops or the API says "slow down," it waits and retries instead of giving up. It keeps your passwords and API keys out of the logs. And it works in it's sandbox in so it can't wipe your files even if something goes wrong.
 
