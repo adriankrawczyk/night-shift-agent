@@ -219,7 +219,7 @@ for f in "${required[@]}"; do
   if [ ! -e "$INSTALLER_DIR/$f" ]; then
     ilog error integrity_failed "missing $INSTALLER_DIR/$f"
     c_red "Integrity check failed: missing $INSTALLER_DIR/$f"
-    c_red "Run: bash $0 --update"
+    c_red "Run: bash $INSTALLER_DIR/install.sh --update"
     exit 1
   fi
 done
@@ -239,8 +239,8 @@ fi
 # === Launch wizard ===
 echo ""
 c_blue "Launching wizard. The first question is about setup depth (Minimal / Balanced / Full)."
-c_dim "Setup takes ~20-30 min for Full tier. You can re-run with 'bash $0' to pick up where you left off."
-c_dim "Everything is logged to $INSTALL_LOG — run 'bash $0 --collect-logs' afterward to copy it for debugging."
+c_dim "Setup takes ~20-30 min for Full tier. You can re-run with 'bash $INSTALLER_DIR/install.sh' to pick up where you left off."
+c_dim "Everything is logged to $INSTALL_LOG — run 'bash $INSTALLER_DIR/install.sh --collect-logs' afterward to copy it for debugging."
 echo ""
 
 # The wizard (a separate claude process) appends to the SAME diagnostic log via
@@ -260,9 +260,20 @@ if [ -t 0 ] && [ -t 1 ]; then
   # Interactive — safe to exec claude with inherited stdio
   exec claude "$WIZARD_PROMPT"
 elif [ -e /dev/tty ]; then
-  # Piped install but a controlling TTY exists — re-attach and exec
-  c_dim "Reconnecting to TTY for interactive wizard…"
-  exec claude "$WIZARD_PROMPT" </dev/tty >/dev/tty 2>/dev/tty
+  # Piped install (curl | bash): only STDIN is the curl pipe — stdout/stderr were
+  # restored above to the ORIGINAL terminal (fd 3/4). So reattach stdin from the
+  # terminal and leave stdout/stderr alone; only force them to /dev/tty if they
+  # somehow aren't a TTY.
+  #
+  # Do NOT blindly `>/dev/tty 2>/dev/tty`: that opens a SECOND write handle to an
+  # already-terminal stdout/stderr, which makes the claude CLI (Bun) crash in
+  # tty.WriteStream with `EINVAL: kqueue` / `process.stderr.fd undefined` before
+  # the wizard ever starts. Reattaching only stdin avoids that entirely.
+  c_dim "Reconnecting to the terminal for the interactive wizard…"
+  exec 0</dev/tty
+  [ -t 1 ] || exec 1>/dev/tty
+  [ -t 2 ] || exec 2>/dev/tty
+  exec claude "$WIZARD_PROMPT"
 else
   # No TTY available (CI / headless / docker without -it) — print and exit
   ilog warn no_tty "wizard not launched — no TTY; printed manual command"
