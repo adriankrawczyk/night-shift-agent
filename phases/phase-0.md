@@ -85,7 +85,7 @@ Persist as `.projects[i].github = {owner, name, default_branch, primary_language
 
 **GitHub user (once, top-level — needed for gh_repo_full template variable):**
 ```bash
-gh api user --jq .login 2>/dev/null   # e.g., "adriankrawczyk"
+gh api user --jq .login 2>/dev/null   # e.g., "octocat"
 ```
 
 Persist as `$SCAN_JSON.gh_user_login`. Skip silently if `gh auth status` is not OK.
