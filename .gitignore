@@ -18,5 +18,7 @@ dry-runs/
 .scratch/
 NOTES.local.md
 
-# Test artifacts (deleted on success, present only on diff)
-tests/.actual-*
+# Install-time artifacts generated inside the user's installer clone — ignored so
+# `git status` in ~/.night-shift-installer stays clean after running the wizard.
+start-wizard.command
+.claude/
