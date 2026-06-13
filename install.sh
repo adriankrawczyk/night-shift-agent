@@ -251,13 +251,13 @@ WIZARD_PROMPT="Read $INSTALLER_DIR/META_PROMPT.md and run the Night Shift Agent 
 # Expose the wizard as a project slash command so we DON'T auto-fire it on launch.
 # We open a plain claude REPL (cwd = installer dir, already a git project) and let
 # the user settle in first — dismiss first-run dialogs, pick model/effort — then
-# kick off the wizard deliberately with `/wizard`. Better UX, still one keystroke.
+# kick off the wizard deliberately with `/night-shift-wizard`. Better UX, still one keystroke.
 mkdir -p "$INSTALLER_DIR/.claude/commands" 2>/dev/null && {
   echo "---"
   echo "description: Start the Night Shift Agent setup wizard"
   echo "---"
   echo "$WIZARD_PROMPT"
-} > "$INSTALLER_DIR/.claude/commands/wizard.md" 2>/dev/null || true
+} > "$INSTALLER_DIR/.claude/commands/night-shift-wizard.md" 2>/dev/null || true
 
 # Pre-accept the workspace-trust dialog for the dir we launch in. The interactive
 # claude REPL shows "Is this a project you trust?" for an unknown cwd; it's keyed
@@ -289,10 +289,10 @@ if [ -t 0 ]; then
   # Real interactive terminal (e.g. `bash install.sh` run directly): exec works —
   # keystrokes reach claude because we have a proper controlling terminal, and the
   # cwd is pre-trusted so no trust prompt. Open a plain REPL (no auto-prompt); the
-  # user picks model/effort, then runs `/wizard`.
-  ilog info wizard_handoff "exec claude (interactive tty, /wizard)"
+  # user picks model/effort, then runs `/night-shift-wizard`.
+  ilog info wizard_handoff "exec claude (interactive tty, /night-shift-wizard)"
   echo ""
-  c_blue "Claude Code is opening. Set your model/effort if you like, then run:  /wizard"
+  c_blue "Claude Code is opening. Set your model/effort if you like, then run:  /night-shift-wizard"
   c_dim "(or type: Read META_PROMPT.md and run the installer wizard)"
   echo ""
   exec claude
@@ -303,7 +303,7 @@ else
   # session) — the wizard renders but Enter does nothing. So instead of dropping
   # into a dead-keyboard wizard, write a tiny launcher and have the user start it
   # from their own shell, where the keyboard works and the dir is already trusted.
-  # The launcher opens a plain REPL; the user runs `/wizard` when ready.
+  # The launcher opens a plain REPL; the user runs `/night-shift-wizard` when ready.
   LAUNCHER="$INSTALLER_DIR/start-wizard.command"
   {
     echo "#!/bin/bash"
@@ -311,7 +311,7 @@ else
     printf 'export NIGHT_SHIFT_INSTALL_LOG=%q\n' "$INSTALL_LOG"
     printf 'cd %q || exit 1\n' "$INSTALLER_DIR"
     echo 'echo ""'
-    echo 'echo "Claude Code is opening. Set your model/effort if you like, then run:  /wizard"'
+    echo 'echo "Claude Code is opening. Set your model/effort if you like, then run:  /night-shift-wizard"'
     echo 'echo "(or type: Read META_PROMPT.md and run the installer wizard)"'
     echo 'echo ""'
     echo 'exec claude'
@@ -323,14 +323,14 @@ else
     echo ""
     echo "    $LAUNCHER"
     echo ""
-    c_dim "Then, inside Claude, pick your model/effort and run:  /wizard"
+    c_dim "Then, inside Claude, pick your model/effort and run:  /night-shift-wizard"
     c_dim "(Run the launcher in your terminal — a piped 'curl | bash' can't own the keyboard for the TUI.)"
   else
     c_blue "Setup ready. Open Claude Code with:"
     echo ""
     echo "    cd $INSTALLER_DIR && claude"
     echo ""
-    c_dim "Then run:  /wizard"
+    c_dim "Then run:  /night-shift-wizard"
   fi
   echo ""
   exit 0
